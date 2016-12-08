@@ -15,7 +15,7 @@ use warnings;
 
 use 5.008000;
 
-our $VERSION = '2.10';
+our $VERSION = '2.12';
 
 ###################################################
 # create connection pool
@@ -96,7 +96,7 @@ sub startup {
         require  Plack::Middleware::Static;
         $app = Plack::Middleware::Static->wrap($app,
                     path         => sub { my $p = Thruk::Context::translate_request_path($_, $class->config);
-                                          $p =~ /\.(css|png|js|gif|jpg|ico|html|wav|ttf)$/mx;
+                                          $p =~ /\.(css|png|js|gif|jpg|ico|html|wav|ttf|svg)$/mx;
                                         },
                     root         => './root/',
                     pass_through => 1,

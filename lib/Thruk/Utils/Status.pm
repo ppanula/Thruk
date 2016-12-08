@@ -28,20 +28,20 @@ sets some default stash variables
 sub set_default_stash {
     my( $c ) = @_;
 
-    $c->stash->{'hoststatustypes'}      = $c->req->parameters->{'hoststatustypes'}    || '';
-    $c->stash->{'hostprops'}            = $c->req->parameters->{'hostprops'}          || '';
-    $c->stash->{'servicestatustypes'}   = $c->req->parameters->{'servicestatustypes'} || '';
-    $c->stash->{'serviceprops'}         = $c->req->parameters->{'serviceprops'}       || '';
-    $c->stash->{'nav'}                  = $c->req->parameters->{'nav'}                || '';
-    $c->stash->{'entries'}              = $c->req->parameters->{'entries'}            || '';
-    $c->stash->{'sortoption'}           = $c->req->parameters->{'sortoption'}         || '';
-    $c->stash->{'sortoption_hst'}       = $c->req->parameters->{'sortoption_hst'}     || '';
-    $c->stash->{'sortoption_svc'}       = $c->req->parameters->{'sortoption_svc'}     || '';
-    $c->stash->{'hidesearch'}           = $c->req->parameters->{'hidesearch'}         || 0;
-    $c->stash->{'hostgroup'}            = $c->req->parameters->{'hostgroup'}          || '';
-    $c->stash->{'servicegroup'}         = $c->req->parameters->{'servicegroup'}       || '';
-    $c->stash->{'host'}                 = $c->req->parameters->{'host'}               || '';
-    $c->stash->{'service'}              = $c->req->parameters->{'service'}            || '';
+    $c->stash->{'hoststatustypes'}      = Thruk::Utils::Filter::escape_html($c->req->parameters->{'hoststatustypes'}    || '');
+    $c->stash->{'hostprops'}            = Thruk::Utils::Filter::escape_html($c->req->parameters->{'hostprops'}          || '');
+    $c->stash->{'servicestatustypes'}   = Thruk::Utils::Filter::escape_html($c->req->parameters->{'servicestatustypes'} || '');
+    $c->stash->{'serviceprops'}         = Thruk::Utils::Filter::escape_html($c->req->parameters->{'serviceprops'}       || '');
+    $c->stash->{'nav'}                  = Thruk::Utils::Filter::escape_html($c->req->parameters->{'nav'}                || '');
+    $c->stash->{'entries'}              = Thruk::Utils::Filter::escape_html($c->req->parameters->{'entries'}            || '');
+    $c->stash->{'sortoption'}           = Thruk::Utils::Filter::escape_html($c->req->parameters->{'sortoption'}         || '');
+    $c->stash->{'sortoption_hst'}       = Thruk::Utils::Filter::escape_html($c->req->parameters->{'sortoption_hst'}     || '');
+    $c->stash->{'sortoption_svc'}       = Thruk::Utils::Filter::escape_html($c->req->parameters->{'sortoption_svc'}     || '');
+    $c->stash->{'hidesearch'}           = Thruk::Utils::Filter::escape_html($c->req->parameters->{'hidesearch'}         || 0);
+    $c->stash->{'hostgroup'}            = Thruk::Utils::Filter::escape_html($c->req->parameters->{'hostgroup'}          || '');
+    $c->stash->{'servicegroup'}         = Thruk::Utils::Filter::escape_html($c->req->parameters->{'servicegroup'}       || '');
+    $c->stash->{'host'}                 = Thruk::Utils::Filter::escape_html($c->req->parameters->{'host'}               || '');
+    $c->stash->{'service'}              = Thruk::Utils::Filter::escape_html($c->req->parameters->{'service'}            || '');
     $c->stash->{'data'}                = '';
     $c->stash->{'style'}                = '';
     $c->stash->{'has_error'}            = 0;
@@ -1539,7 +1539,7 @@ sub set_custom_title {
         my $custom_title          = $c->req->parameters->{'title'};
         if(ref $custom_title eq 'ARRAY') { $custom_title = pop @{$custom_title}; }
         $custom_title             =~ s/\+/\ /gmx;
-        $c->stash->{custom_title} = $custom_title;
+        $c->stash->{custom_title} = Thruk::Utils::Filter::escape_html($custom_title);
         $c->stash->{title}        = $custom_title;
         return 1;
     }
@@ -1707,12 +1707,13 @@ possible conversions are
 =cut
 sub convert_time_amount {
     my $value = shift;
-    if($value =~ m/^(\d+)(y|w|d|h|m)/gmx) {
+    if($value =~ m/^(\d+)(y|w|d|h|m|s)/gmx) {
         if($2 eq 'y') { return $1 * 86400*365; }# year
-        if($2 eq 'w') { return $1 * 604800; }   # weeks
+        if($2 eq 'w') { return $1 * 86400*7; }  # weeks
         if($2 eq 'd') { return $1 * 86400; }    # days
         if($2 eq 'h') { return $1 * 3600; }     # hours
         if($2 eq 'm') { return $1 * 60; }       # minutes
+        if($2 eq 's') { return $1 }             # seconds
     }
     return $value;
 }
@@ -2025,6 +2026,237 @@ sub _is_defined {
     my($a, $b) = @_;
     return $a if defined $a;
     return $b;
+}
+
+##############################################
+
+=head2 get_host_columns
+
+  get_host_columns($c)
+
+returns list of host columns
+
+=cut
+sub get_host_columns {
+    my($c) = @_;
+
+    my $columns = [];
+    if($c->stash->{'show_backends_in_table'} == 2) {
+        push @{$columns},
+        { title => "Site",                 "field" => "peer_name",            "checked" => 1 };
+    }
+    push @{$columns}, (
+        { title => "Host",                 "field" => "name",                 "checked" => 1 },
+        { title => "Status",               "field" => "state",                "checked" => 1 },
+        { title => "Last Check",           "field" => "last_check",           "checked" => 1 },
+        { title => "Duration",             "field" => "duration",             "checked" => 1 },
+    );
+    if($c->stash->{'show_host_attempts'}) {
+        push @{$columns},
+        { title => "Attempt",              "field" => "current_attempt",      "checked" => 1 };
+    }
+    if($c->stash->{'show_backends_in_table'} == 1) {
+        push @{$columns},
+        { title => "Site",                 "field" => "peer_name",            "checked" => 1 };
+    }
+    push @{$columns}, (
+        { title => "Status Information",   "field" => "plugin_output",        "checked" => 1 },
+    );
+    if(!$c->stash->{'show_backends_in_table'}) {
+        push @{$columns},
+        { title => "Site",                 "field" => "peer_name",            "checked" => 0 };
+    }
+    if(!$c->stash->{'show_host_attempts'}) {
+        push @{$columns},
+        { title => "Attempt",              "field" => "current_attempt",      "checked" => 0 };
+    }
+    push @{$columns}, (
+        { title => "Address",              "field" => "address",              "checked" => 0 },
+        { title => "Check Command",        "field" => "check_command",        "checked" => 0 },
+        { title => "Check Interval",       "field" => "check_interval",       "checked" => 0 },
+        { title => "Check Period",         "field" => "check_period",         "checked" => 0 },
+        { title => "Contacts",             "field" => "contacts",             "checked" => 0 },
+        { title => "Comments",             "field" => "comments",             "checked" => 0 },
+        { title => "Event Handler",        "field" => "event_handler",        "checked" => 0 },
+        { title => "Execution Time",       "field" => "execution_time",       "checked" => 0 },
+        { title => "Groups",               "field" => "groups",               "checked" => 0 },
+        { title => "Latency",              "field" => "latency",              "checked" => 0 },
+        { title => "Next Check",           "field" => "next_check",           "checked" => 0 },
+        { title => "Notification Period",  "field" => "notification_period",  "checked" => 0 },
+        { title => "Percent State Change", "field" => "percent_state_change", "checked" => 0 },
+    );
+    if($c->config->{'show_custom_vars'}) {
+        for my $var (@{$c->config->{'show_custom_vars'}}) {
+            push @{$columns},
+            { title => $var,               "field" => "cust_".$var,           "checked" => 0 };
+        }
+    }
+
+    my @selected;
+    for my $col (@{$columns}) {
+        if($col->{'checked'}) {
+            push @selected, $col->{'field'};
+        }
+    }
+    $c->stash->{'default_host_columns'} = $c->config->{'default_host_columns'} || join(",", @selected);
+    $c->stash->{'default_host_columns'} =~ s/\s+//gmx;
+    return($columns);
+}
+
+##############################################
+
+=head2 get_service_columns
+
+  get_service_columns($c)
+
+returns list of service columns
+
+=cut
+sub get_service_columns {
+    my($c) = @_;
+
+    my $columns = [
+        { title => "Host",                 "field" => "host_name",            "checked" => 1 },
+    ];
+    if($c->stash->{'show_backends_in_table'} == 2) {
+        push @{$columns},
+        { title => "Site",                 "field" => "peer_name",            "checked" => 1 };
+    }
+    push @{$columns}, (
+        { title => "Service",              "field" => "description",          "checked" => 1 },
+        { title => "Status",               "field" => "state",                "checked" => 1 },
+        { title => "Last Check",           "field" => "last_check",           "checked" => 1 },
+        { title => "Duration",             "field" => "duration",             "checked" => 1 },
+        { title => "Attempt",              "field" => "current_attempt",      "checked" => 1 },
+    );
+    if($c->stash->{'show_backends_in_table'} == 1) {
+        push @{$columns},
+        { title => "Site",                 "field" => "peer_name",            "checked" => 1 };
+    }
+    push @{$columns}, (
+        { title => "Status Information",   "field" => "plugin_output",        "checked" => 1 },
+    );
+    if(!$c->stash->{'show_backends_in_table'}) {
+        push @{$columns},
+        { title => "Site",                 "field" => "peer_name",            "checked" => 0 };
+    }
+    push @{$columns}, (
+        { title => "Host Address",         "field" => "host_address",         "checked" => 0 },
+        { title => "Host Groups",          "field" => "host_groups",          "checked" => 0 },
+        { title => "Check Command",        "field" => "check_command",        "checked" => 0 },
+        { title => "Check Interval",       "field" => "check_interval",       "checked" => 0 },
+        { title => "Check Period",         "field" => "check_period",         "checked" => 0 },
+        { title => "Contacts",             "field" => "contacts",             "checked" => 0 },
+        { title => "Comments",             "field" => "comments",             "checked" => 0 },
+        { title => "Event Handler",        "field" => "event_handler",        "checked" => 0 },
+        { title => "Execution Time",       "field" => "execution_time",       "checked" => 0 },
+        { title => "Groups",               "field" => "groups",               "checked" => 0 },
+        { title => "Latency",              "field" => "latency",              "checked" => 0 },
+        { title => "Next Check",           "field" => "next_check",           "checked" => 0 },
+        { title => "Notification Period",  "field" => "notification_period",  "checked" => 0 },
+        { title => "Percent State Change", "field" => "percent_state_change", "checked" => 0 },
+    );
+    if($c->config->{'show_custom_vars'}) {
+        for my $var (@{$c->config->{'show_custom_vars'}}) {
+            push @{$columns},
+            { title => $var,               "field" => "cust_".$var,           "checked" => 0 };
+        }
+    }
+
+
+    my @selected;
+    for my $col (@{$columns}) {
+        if($col->{'checked'}) {
+            push @selected, $col->{'field'};
+        }
+    }
+    $c->stash->{'default_service_columns'} = $c->config->{'default_service_columns'} || join(",", @selected);
+    $c->stash->{'default_service_columns'} =~ s/\s+//gmx;
+    return($columns);
+}
+
+##############################################
+
+=head2 sort_table_columns
+
+  sort_table_columns($columns, $params)
+
+sort columns based on request parameters
+
+=cut
+sub sort_table_columns {
+    my($columns, $params) = @_;
+    if(!$params) { return($columns); }
+
+    my $hashed = {};
+    for my $col (@{$columns}) {
+        $hashed->{$col->{'field'}} = $col;
+    }
+
+    my $sorted = [];
+    for my $param (split/,/mx, $params) {
+        my($key,$title) = split(/:/mx, $param, 2);
+        if($hashed->{$key}) {
+            $hashed->{$key}->{'checked'} = 1;
+            if(defined $title) {
+                $title = Thruk::Utils::Filter::escape_html($title);
+                $hashed->{$key}->{'orig'}  = $hashed->{$key}->{'title'};
+                $hashed->{$key}->{'title'} = $title;
+            }
+            push @{$sorted}, $hashed->{$key};
+            delete $hashed->{$key};
+        }
+    }
+    # add missing
+    for my $col (@{$columns}) {
+        if($hashed->{$col->{'field'}}) {
+            $hashed->{$col->{'field'}}->{'checked'} = 0;
+            push @{$sorted}, $hashed->{$col->{'field'}};
+        }
+    }
+    return($sorted);
+}
+
+##############################################
+
+=head2 set_comments_and_downtimes
+
+  set_comments_and_downtimes($c)
+
+set comments / downtimes by host
+
+=cut
+sub set_comments_and_downtimes {
+    my($c) = @_;
+
+    # add comments and downtimes
+    my $comments  = $c->{'db'}->get_comments( filter => [ Thruk::Utils::Auth::get_auth_filter( $c, 'comments' ) ] );
+    my $downtimes = $c->{'db'}->get_downtimes( filter => [ Thruk::Utils::Auth::get_auth_filter( $c, 'downtimes' ) ] );
+    my $comments_by_host         = {};
+    my $comments_by_host_service = {};
+    if($downtimes) {
+        for my $downtime ( @{$downtimes} ) {
+            if( defined $downtime->{'service_description'} and $downtime->{'service_description'} ne '' ) {
+                push @{ $comments_by_host_service->{ $downtime->{'host_name'} }->{ $downtime->{'service_description'} } }, $downtime;
+            }
+            else {
+                push @{ $comments_by_host->{ $downtime->{'host_name'} } }, $downtime;
+            }
+        }
+    }
+    if($comments) {
+        for my $comment ( @{$comments} ) {
+            if( defined $comment->{'service_description'} and $comment->{'service_description'} ne '' ) {
+                push @{ $comments_by_host_service->{ $comment->{'host_name'} }->{ $comment->{'service_description'} } }, $comment;
+            }
+            else {
+                push @{ $comments_by_host->{ $comment->{'host_name'} } }, $comment;
+            }
+        }
+    }
+    $c->stash->{'comments_by_host'}         = $comments_by_host;
+    $c->stash->{'comments_by_host_service'} = $comments_by_host_service;
+    return;
 }
 
 ##############################################

@@ -1,18 +1,30 @@
 This file documents the revision history for the Monitoring Webinterface Thruk.
 
-next:
+2.12-2   Mon Nov 28 14:49:12 CET 2016
+          - add downtime_max_duration option
+          - fix glitch in column drag/drop
+          - fix missing jquery in mobile view (#653)
+          - fix redirect issue when omd site is named 'thruk'
+
+2.12     Fri Nov 18 10:14:00 CET 2016
           - remove startup page, Thruk starts in less than a second now
+          - add adjustable status details columns / dynamic views
+          - add default_service_columns and default_host_columns config options
           - Performance improvements on the host/service list page
           - allow arbitrary html in the side navigation
           - fix merging configuration from thruk_local.d
           - fix session logout problem when there is a syntax error in menu_local.conf
           - Panorama View:
             - list already used colors in color picker
+            - add support for svg vector graphics as background/static/status images
             - fix display error in speedometer with overlaping thresholds
             - fix js error in shape dropdown
             - fix error when using umlauts in dashboard title
           - Business Process:
+            - add icinga2 support
             - fix regular expression in service state nodes
+          - Reports:
+            - add outage report
           - Logcache:
             - add logcache_import_command option
             - add logcache_delta_updates option

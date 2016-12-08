@@ -13,6 +13,7 @@ var refreshPage      = 1;
 var cmdPaneState     = 0;
 var curRefreshVal    = 0;
 var additionalParams = new Object();
+var removeParams     = new Object();
 var scrollToPos      = 0;
 var refreshTimer;
 var backendSelTimer;
@@ -133,6 +134,8 @@ function cleanUnderscoreUrl() {
         newUrl = newUrl.replace(/\&_=\d+/g, '');
         newUrl = newUrl.replace(/\?scrollTo=\d+/g, '?');
         newUrl = newUrl.replace(/\&scrollTo=\d+/g, '');
+        newUrl = newUrl.replace(/\?autoShow=\w+/g, '?');
+        newUrl = newUrl.replace(/\&autoShow=\w+/g, '');
         newUrl = newUrl.replace(/\?$/g, '');
         newUrl = newUrl.replace(/\?&/g, '?');
         try {
@@ -163,6 +166,10 @@ function saveScroll() {
     var scroll = getPageScroll();
     if(scroll > 0) {
         additionalParams['scrollTo'] = scroll;
+        delete removeParams['scrollTo'];
+    } else {
+        delete additionalParams['scrollTo'];
+        removeParams['scrollTo'] = true;
     }
 }
 
@@ -186,6 +193,7 @@ function hideElement(id, icon) {
   if(img && img.src) {
     img.src = img.src.replace(/icon_minimize\.gif/g, "icon_maximize.gif");
   }
+  remove_close_element(id);
 }
 
 /* show a element by id */
@@ -559,17 +567,12 @@ function toQueryString(obj) {
     return str;
 }
 
-/* reloads the current page and adds some parameter from a hash */
-function reloadPage() {
-    window.clearTimeout(refreshTimer);
-    var obj = document.getElementById('refresh_rate');
-    if(obj) {
-        obj.innerHTML = "<span id='refresh_rate'>page will be refreshed...</span>";
-    }
-
+function getCurrentUrl(addTimeAndScroll) {
     var origHash = window.location.hash;
     var newUrl   = window.location.href;
     newUrl       = newUrl.replace(/#.*$/g, '');
+
+    if(addTimeAndScroll == undefined) { addTimeAndScroll = true; }
 
     // save scroll state
     saveScroll();
@@ -579,13 +582,21 @@ function reloadPage() {
         urlArgs[key] = additionalParams[key];
     }
 
+    for(var key in removeParams) {
+        delete urlArgs[key];
+    }
+
     if(urlArgs['highlight'] != undefined) {
         delete urlArgs['highlight'];
     }
 
     // make url uniq, otherwise we would to do a reload
     // which reloads all images / css / js too
-    urlArgs['_'] = (new Date()).getTime();
+    if(addTimeAndScroll) {
+        urlArgs['_'] = (new Date()).getTime();
+    } else {
+        delete urlArgs["scrollTo"];
+    }
 
     var newParams = toQueryString(urlArgs);
 
@@ -597,6 +608,26 @@ function reloadPage() {
     if(origHash != '#' && origHash != '') {
         newUrl = newUrl + origHash;
     }
+    return(newUrl);
+}
+
+/* update the url by using additionalParams */
+function updateUrl() {
+    var newUrl = getCurrentUrl(false);
+    try {
+        history.replaceState({}, "", newUrl);
+    } catch(err) { debug(err) }
+}
+
+/* reloads the current page and adds some parameter from a hash */
+function reloadPage() {
+    window.clearTimeout(refreshTimer);
+    var obj = document.getElementById('refresh_rate');
+    if(obj) {
+        obj.innerHTML = "<span id='refresh_rate'>page will be refreshed...</span>";
+    }
+
+    var newUrl = getCurrentUrl();
 
     if(fav_counter) {
         updateFaviconCounter('Zz', '#F7DA64', true, "10px Bold Tahoma", "#BA2610");
@@ -1394,20 +1425,29 @@ function hide_activity_icons() {
 }
 
 /* verify time */
-var verify_id;
 var verification_errors = new Object();
-function verify_time(id) {
-    verify_id = id;
+function verify_time(id, duration_id) {
     window.clearTimeout(verifyTimer);
-    verifyTimer = window.setTimeout("verify_time_do(verify_id)", 500);
+    verifyTimer = window.setTimeout(function() {
+        verify_time_do(id, duration_id);
+    }, 500);
 }
-function verify_time_do(id) {
-    var obj = document.getElementById(id);
-    debug(obj.value);
+function verify_time_do(id, duration_id) {
+    var obj  = document.getElementById(id);
+    var obj2 = document.getElementById(duration_id);
+    var duration = "";
+    if(obj2 && jQuery(obj2).is(":visible")) {
+        duration = obj2.value;
+    }
 
     jQuery.ajax({
-        url: url_prefix + 'cgi-bin/status.cgi?verify=time&time='+obj.value,
+        url: url_prefix + 'cgi-bin/status.cgi',
         type: 'POST',
+        data: {
+            verify:   'time',
+            time:     obj.value,
+            duration: duration
+        },
         success: function(data) {
             var next = jQuery(obj).next();
             if(next[0] && next[0].className == 'smallalert') {
@@ -1429,6 +1469,11 @@ function verify_time_do(id) {
 /* return unescaped html string */
 function unescapeHTML(html) {
     return jQuery("<div />").html(html).text();
+}
+
+/* return escaped html string */
+function escapeHTML(text) {
+    return jQuery("<div>").text(text).html();
 }
 
 /* reset table row classes */
@@ -1900,8 +1945,9 @@ function fade(id, duration) {
     }
 }
 
+var ui_loading = false;
 function load_jquery_ui(callback) {
-    if(has_jquery_ui) {
+    if(has_jquery_ui || ui_loading) {
         return;
     }
     var css  = document.createElement('link');
@@ -1909,12 +1955,14 @@ function load_jquery_ui(callback) {
     css.rel  = 'stylesheet';
     css.type = 'text/css';
     document.body.appendChild(css);
+    ui_loading = true;
     jQuery.ajax({
         url:       jquery_ui_url,
         dataType: 'script',
         success:   function(script, textStatus, jqXHR) {
             has_jquery_ui = true;
             callback(script, textStatus, jqXHR);
+            ui_loading = false;
         },
         cache:     true
     });
@@ -2175,6 +2223,395 @@ function fetch_long_plugin_output(td, host, service, backend, escape_html) {
         jQuery('.long_plugin_output').load(url, {}, function(text, status, req) {
         });
     }
+}
+
+// make the columns sortable
+var already_sortable = {};
+function initStatusTableColumnSorting(pane_prefix, table_id) {
+    if(!has_jquery_ui) {
+        load_jquery_ui(function() {
+            initStatusTableColumnSorting(pane_prefix, table_id);
+        });
+        return;
+    }
+    if(already_sortable[pane_prefix]) {
+        return;
+    }
+    already_sortable[pane_prefix] = true;
+
+    jQuery('#'+table_id+' > tbody > tr:first-child').sortable({
+        items                : '> th',
+        helper               : 'clone',
+        tolerance            : 'pointer',
+        update               : function( event, ui ) {
+            var oldIndexes = []
+            var rowsToSort = {};
+            var table;
+            // remove all current rows from the column selector, they will be later readded in the right order
+            jQuery('#'+pane_prefix+'_columns_table > tbody > tr').each(function(i, el) {
+                table = el.parentNode;
+                var row = el.parentNode.removeChild(el);
+                var field = jQuery(row).find("input").val();
+                rowsToSort[field] = row;
+                oldIndexes.push(field);
+            });
+            // fetch the target column order based on the current status table header
+            var target = [];
+            jQuery('#'+table_id+' > tbody > tr:first-child > th').each(function(i, el) {
+                var col = get_column_from_classname(el);
+                if(col) {
+                    target.push(col);
+                }
+            });
+            jQuery(target).each(function(i, el) {
+                table.appendChild(rowsToSort[el]);
+            });
+            // remove the current column header and readd them in original order, so later ordering wont skip headers
+            var currentHeader = {};
+            jQuery('#'+table_id+' > tbody > tr:first-child > th').each(function(i, el) {
+                table = el.parentNode;
+                var row = el.parentNode.removeChild(el);
+                var col = get_column_from_classname(el);
+                if(col) {
+                    currentHeader[col] = row;
+                }
+            });
+            jQuery(oldIndexes).each(function(i, el) {
+                table.appendChild(currentHeader[el]);
+            });
+            updateStatusColumns(pane_prefix, false);
+        }
+    });
+    jQuery('#'+pane_prefix+'_columns_table tbody').sortable({
+        items                : '> tr',
+        placeholder          : 'column-sortable-placeholder',
+        update               : function( event, ui ) {
+            /* drag/drop changes the checkbox state, so set checked flag assuming that a moved column should be visible */
+            window.setTimeout(function() {
+                jQuery(ui.item[0]).find("input").prop('checked', true);
+                updateStatusColumns(pane_prefix, false);
+            }, 100);
+        }
+    });
+    /* enable changing columns header name */
+    jQuery('#'+table_id+' > tbody > tr:first-child > th').dblclick(function(evt) {
+        var th = evt.target;
+        var text   = th.innerText.replace(/\s*$/, '');
+        var childs = removeChilds(th);
+        th.innerHTML = "<input type='text' class='header_inline_edit' value='"+text+"'></form>";
+        window.setTimeout(function() {
+            jQuery(th).find('INPUT').focus();
+            var input = jQuery(th).find('INPUT')[0];
+            setCaretToPos(input, text.length);
+            jQuery(input).on('keyup blur', function (e) {
+                /* submit on enter/return */
+                if(e.keyCode == 13 || e.type == "blur") {
+                    th.innerHTML = escapeHTML(input.value)+" ";
+                    // restore sort links
+                    addChilds(th, childs, 1);
+                    var col  = get_column_from_classname(th);
+                    var orig = jQuery('#'+pane_prefix+'_col_'+col)[0].title;
+
+                    var cols = default_columns[pane_prefix];
+                    if(additionalParams[pane_prefix+'columns']) {
+                        cols = additionalParams[pane_prefix+'columns'];
+                    }
+                    cols = cols.split(/,/);
+                    for(var x = 0; x < cols.length; x++) {
+                        var tmp = cols[x].split(/:/, 2);
+                        if(tmp[0] == col) {
+                            if(orig != input.value) {
+                                cols[x] = tmp[0]+':'+input.value;
+                            } else {
+                                cols[x] = tmp[0];
+                            }
+                        }
+                    }
+
+                    jQuery('#'+pane_prefix+'_col_'+col+'n')[0].innerHTML = input.value;
+
+                    var newVal = cols.join(',');
+                    jQuery('#'+pane_prefix+'columns').val(newVal);
+                    additionalParams[pane_prefix+'columns'] = newVal;
+                    updateUrl();
+                }
+                /* cancel on escape */
+                if(e.keyCode == 27) {
+                    th.innerHTML = text+" ";
+                    // restore sort links
+                    addChilds(th, childs, 1);
+                }
+            });
+        }, 100);
+    });
+    /* enable changing columns header name */
+    jQuery('#'+pane_prefix+'_columns_table tbody td.filterName').dblclick(function(evt) {
+        var th = evt.target;
+        var text   = th.innerText.replace(/\s*$/, '');
+        th.innerHTML = "<input type='text' class='header_inline_edit' value='"+text+"'></form>";
+        window.setTimeout(function() {
+            jQuery(th).find('INPUT').focus();
+            var input = jQuery(th).find('INPUT')[0];
+            setCaretToPos(input, text.length);
+            jQuery(input).on('keydown blur', function (e) {
+                /* submit on enter/return */
+                if(e.keyCode == 13 || e.type == "blur") {
+                    e.preventDefault();
+                    th.innerHTML = escapeHTML(input.value);
+                    var col  = get_column_from_classname(th);
+                    var orig = jQuery('#'+pane_prefix+'_col_'+col)[0].title;
+
+                    var cols = default_columns[pane_prefix];
+                    if(additionalParams[pane_prefix+'columns']) {
+                        cols = additionalParams[pane_prefix+'columns'];
+                    }
+                    cols = cols.split(/,/);
+                    for(var x = 0; x < cols.length; x++) {
+                        var tmp = cols[x].split(/:/, 2);
+                        if(tmp[0] == col) {
+                            if(orig != input.value) {
+                                cols[x] = tmp[0]+':'+input.value;
+                            } else {
+                                cols[x] = tmp[0];
+                            }
+                        }
+                    }
+
+                    var header = jQuery('.'+pane_prefix+'_table').find('th.status.col_'+col)[0];
+                    var childs = removeChilds(header);
+                    header.innerHTML = input.value+" ";
+                    addChilds(header, childs, 1);
+
+                    var newVal = cols.join(',');
+                    jQuery('#'+pane_prefix+'columns').val(newVal);
+                    additionalParams[pane_prefix+'columns'] = newVal;
+                    updateUrl();
+                }
+                /* cancel on escape */
+                if(e.keyCode == 27) {
+                    e.preventDefault();
+                    th.innerHTML = text+" ";
+                }
+            });
+        }, 100);
+    });
+}
+
+// remove and return all child nodes
+function removeChilds(el) {
+    var childs = [];
+    while(el.firstChild) {
+        childs.push(el.removeChild(el.firstChild));
+    }
+    return(childs);
+}
+
+// add all elements as child
+function addChilds(el, childs, startWith) {
+    if(startWith == undefined) { startWith = 0; }
+    for(var x = startWith; x < childs.length; x++) {
+        el.appendChild(childs[x]);
+    }
+}
+
+/* returns the value of the col_.* class */
+function get_column_from_classname(el) {
+    var classes = el.className.split(/\s+/);
+    for(var x = 0; x < classes.length; x++) {
+        var m = classes[x].match(/^col_(.*)$/);
+        if(m && m[1]) {
+            return(m[1]);
+        }
+    }
+    return;
+}
+
+// apply status table columns
+function updateStatusColumns(id, reloadRequired) {
+    resetRefresh();
+    var table = jQuery('.'+id+'_table')[0];
+    if(!table) {
+        if(thruk_debug_js) { alert("ERROR: no table found in updateStatusColumns(): " + id); }
+    }
+    var changed = false;
+    if(reloadRequired == undefined) { reloadRequired = true; }
+    table.style.visibility = "hidden";
+
+    removeParams['autoShow'] = true;
+
+    var firstRow = table.rows[0];
+    var firstDataRow = [];
+    if(table.rows.length > 1) {
+        firstDataRow = table.rows[1];
+    }
+    var selected = [];
+    jQuery('.'+id+'_col').each(function(i, el) {
+        if(!jQuery(firstRow.cells[i]).hasClass("col_"+el.value)) {
+            // need to reorder column
+            var targetIndex = i;
+            var sourceIndex;
+            jQuery(firstRow.cells).each(function(j, c) {
+                if(jQuery(c).hasClass("col_"+el.value)) {
+                    sourceIndex = j;
+                    return false;
+                }
+            });
+            var dataSourceIndex;
+            jQuery(firstDataRow.cells).each(function(j, c) {
+                if(jQuery(c).hasClass(el.value)) {
+                    dataSourceIndex = j;
+                    return false;
+                }
+            });
+            if(sourceIndex == undefined && !reloadRequired) {
+                if(thruk_debug_js) { alert("ERROR: unknown header column in updateStatusColumns(): " + el.value); }
+                return;
+            }
+            if(firstDataRow.cells && dataSourceIndex == undefined && !reloadRequired) {
+                if(thruk_debug_js) { alert("ERROR: unknown data column in updateStatusColumns(): " + el.value); }
+                return;
+            }
+            if(sourceIndex) {
+                if(firstRow.cells[sourceIndex]) {
+                    var cell = firstRow.removeChild(firstRow.cells[sourceIndex]);
+                    firstRow.insertBefore(cell, firstRow.cells[targetIndex]);
+                }
+                changed = true;
+            }
+            if(dataSourceIndex) {
+                jQuery(table.rows).each(function(j, row) {
+                    if(j > 0 && row.cells[dataSourceIndex]) {
+                        var cell = row.removeChild(row.cells[dataSourceIndex]);
+                        row.insertBefore(cell, row.cells[targetIndex]);
+                    }
+                });
+                changed = true;
+            }
+        }
+
+        // adjust table header text
+        var current = firstRow.cells[i].innerText.trim();
+        var newHead = jQuery('#'+el.id+'n')[0].innerHTML.trim();
+        if(current != newHead) {
+            var childs = removeChilds(firstRow.cells[i]);
+            firstRow.cells[i].innerHTML = newHead+" ";
+            addChilds(firstRow.cells[i], childs, 1);
+            changed = true;
+        }
+
+        // check visibility of this column
+        var display = "none";
+        if(el.checked) {
+            display = "";
+            if(newHead != el.title) {
+                selected.push(el.value+':'+newHead);
+            } else {
+                selected.push(el.value);
+            }
+        }
+        if(table.rows[0].cells[i].style.display != display) {
+            changed = true;
+            jQuery(table.rows).each(function(j, row) {
+                if(row.cells[i]) {
+                    row.cells[i].style.display = display;
+                }
+            });
+        }
+    });
+    if(changed) {
+        var newVal = selected.join(",");
+        if(newVal != default_columns[id]) {
+            jQuery('#'+id+'columns').val(newVal);
+            additionalParams[id+'columns'] = newVal;
+            delete removeParams[id+'columns'];
+
+            if(reloadRequired && table.rows[1] && table.rows[1].cells.length < 10) {
+                additionalParams["autoShow"] = id+"_columns_select";
+                delete removeParams['autoShow'];
+                jQuery('#'+id+"_columns_select").find("DIV.shadowcontent").append("<div class='overlay'></div>").append("<div class='overlay-text'><img class='overlay' src='"+url_prefix + 'themes/' +  theme + "/images/loading-icon.gif'><br>fetching table...</div>");
+                table.style.visibility = "visible";
+                reloadPage();
+                return;
+            }
+        } else {
+            jQuery('#'+id+'columns').val("");
+            delete additionalParams[id+'columns'];
+            removeParams[id+'columns'] = true;
+        }
+        updateUrl();
+    }
+    table.style.visibility = "visible";
+}
+
+/* reload page with with sorting parameters set */
+function sort_by_columns(args) {
+    for(var key in args) {
+        additionalParams[key] = args[key];
+    }
+    reloadPage();
+    return(false);
+}
+
+function setDefaultColumns(type, pane_prefix, value) {
+    updateUrl();
+    if(value == undefined) {
+        var urlArgs  = toQueryParams();
+        value = urlArgs[pane_prefix+"columns"];
+    }
+
+    var data = {
+        action:  'set_default_columns',
+        type:    type,
+        value:   value,
+        token:   user_token
+    };
+    jQuery.ajax({
+        url: "status.cgi",
+        data: data,
+        type: 'POST',
+        success: function(data) {
+            thruk_message(data.rc, data.msg);
+            if(value == "") {
+                jQuery("."+pane_prefix+"_reset_columns_btn").attr({disabled: true});
+                removeParams[pane_prefix+'columns'] = true;
+                reloadPage();
+            } else {
+                jQuery("."+pane_prefix+"_reset_columns_btn").attr({disabled: false});
+            }
+        },
+        error: function(jqXHR, textStatus, errorThrown) {
+            thruk_message(1, 'setting default failed: '+ textStatus);
+        }
+    });
+    return(false);
+}
+
+function refreshNavSections(id) {
+    jQuery.ajax({
+        url: "status.cgi?type=navsection&format=search",
+        type: 'POST',
+        success: function(data) {
+            if(data && data[0]) {
+                jQuery('#'+id).find('option').remove();
+                jQuery('#'+id).append(jQuery('<option>', {
+                    value: 'Bookmarks',
+                    text : 'Bookmarks'
+                }));
+                jQuery.each(data[0].data, function (i, item) {
+                    if(item != "Bookmarks") {
+                        jQuery('#'+id).append(jQuery('<option>', {
+                            value: item,
+                            text : item
+                        }));
+                    }
+                });
+            }
+        },
+        error: function(jqXHR, textStatus, errorThrown) {
+            thruk_message(1, 'fetching side nav sections failed: '+ textStatus);
+        }
+    });
+    return(false);
 }
 
 /*******************************************************************************
@@ -4170,6 +4607,7 @@ function new_filter(cloneObj, parentObj, btnId) {
   hideBtn = document.getElementById(pane_prefix+new_prefix + 'filter_button_mini');
   if(hideBtn) { hideElement( hideBtn); }
   hideElement(pane_prefix + new_prefix + 'btn_accept_search');
+  hideElement(pane_prefix + new_prefix + 'btn_columns');
   showElement(pane_prefix + new_prefix + 'btn_del_search');
 
   hideBtn = document.getElementById(pane_prefix + new_prefix + 'filter_title');

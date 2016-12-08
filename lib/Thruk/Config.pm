@@ -27,7 +27,7 @@ BEGIN {
 
 ######################################
 
-our $VERSION = '2.10';
+our $VERSION = '2.12';
 
 my $project_root = home('Thruk::Config');
 my $branch       = '2';
@@ -45,7 +45,7 @@ $ENV{'THRUK_SRC'} = 'UNKNOWN' unless defined $ENV{'THRUK_SRC'};
 our %config = ('name'                   => 'Thruk',
               'version'                => $VERSION,
               'branch'                 => $branch,
-              'released'               => 'October 03, 2016',
+              'released'               => 'November 28, 2016',
               'compression_format'     => 'gzip',
               'ENCODING'               => 'utf-8',
               'image_path'             => $project_root.'/root/thruk/images',
@@ -173,7 +173,7 @@ our %config = ('name'                   => 'Thruk',
                                                 '_'             => undef,
                                           },
                                           'all_in_one_javascript' => [
-                                              'jquery-1.11.1.min.js',
+                                              'jquery-1.12.4.min.js',
                                               'thruk-'.$VERSION.'-'.$filebranch.'.js',
                                               'cal/jscal2.js',
                                               'overlib.js',

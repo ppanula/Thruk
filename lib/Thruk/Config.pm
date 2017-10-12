@@ -8,6 +8,7 @@ use File::Slurp qw/read_file/;
 use Data::Dumper qw/Dumper/;
 use POSIX ();
 use Thruk::Utils::Filter ();
+use Thruk::Utils::Broadcast ();
 
 =head1 NAME
 
@@ -27,7 +28,7 @@ BEGIN {
 
 ######################################
 
-our $VERSION = '2.12';
+our $VERSION = '2.16';
 
 my $project_root = home('Thruk::Config');
 my $branch       = '2';
@@ -45,7 +46,7 @@ $ENV{'THRUK_SRC'} = 'UNKNOWN' unless defined $ENV{'THRUK_SRC'};
 our %config = ('name'                   => 'Thruk',
               'version'                => $VERSION,
               'branch'                 => $branch,
-              'released'               => 'November 28, 2016',
+              'released'               => 'August 20, 2017',
               'compression_format'     => 'gzip',
               'ENCODING'               => 'utf-8',
               'image_path'             => $project_root.'/root/thruk/images',
@@ -84,6 +85,7 @@ our %config = ('name'                   => 'Thruk',
                                           'throw'               => \&Thruk::Utils::Filter::throw,
                                           'contains'            => \&Thruk::Utils::Filter::contains,
                                           'date_format'         => \&Thruk::Utils::Filter::date_format,
+                                          'last_check'          => \&Thruk::Utils::Filter::last_check,
                                           'remove_html_comments' => \&Thruk::Utils::Filter::remove_html_comments,
                                           'format_date'         => \&Thruk::Utils::format_date,
                                           'format_cronentry'    => \&Thruk::Utils::format_cronentry,
@@ -110,6 +112,7 @@ our %config = ('name'                   => 'Thruk',
                                           'validate_json'       => \&Thruk::Utils::Filter::validate_json,
                                           'get_action_menu'     => \&Thruk::Utils::Filter::get_action_menu,
                                           'get_cmd_submit_hash' => \&Thruk::Utils::Filter::get_cmd_submit_hash,
+                                          'get_broadcasts'      => \&Thruk::Utils::Broadcast::get_broadcasts,
 
                                           'version'        => $VERSION,
                                           'branch'         => $branch,
@@ -172,6 +175,7 @@ our %config = ('name'                   => 'Thruk',
                                                 'update.x'      => undef,
                                                 '_'             => undef,
                                           },
+                                          'physical_logo_path' => [],
                                           'all_in_one_javascript' => [
                                               'jquery-1.12.4.min.js',
                                               'thruk-'.$VERSION.'-'.$filebranch.'.js',
@@ -188,6 +192,15 @@ our %config = ('name'                   => 'Thruk',
                                               'thruk_global.css',
                                               'thruk_noframes.css',
                                               'Thruk.css',
+                                          ],
+                                          'all_in_one_css_frames2' => [
+                                               'thruk_global.css',
+                                               'Thruk2.css',
+                                          ],
+                                          'all_in_one_css_noframes2' => [
+                                              'thruk_global.css',
+                                              'thruk_noframes.css',
+                                              'Thruk2.css',
                                           ],
                                           'jquery_ui' => '1.10.3',
                                           'all_in_one_javascript_panorama' => [
@@ -372,6 +385,7 @@ sub set_default_config {
         'cgi.cfg'                       => 'cgi.cfg',
         bug_email_rcpt                  => 'bugs@thruk.org',
         home_link                       => 'http://www.thruk.org',
+        plugin_registry_url             => ['https://api.thruk.org/v1/plugin/list'],
         mode_file                       => '0660',
         mode_dir                        => '0770',
         backend_debug                   => 0,
@@ -397,7 +411,7 @@ sub set_default_config {
         group_paging_overview           => '*3, 10, 100, all',
         group_paging_grid               => '*5, 10, 50, all',
         group_paging_summary            => '*10, 50, 100, all',
-        default_theme                   => 'Thruk',
+        default_theme                   => 'Thruk2',
         datetime_format                 => '%Y-%m-%d  %H:%M:%S',
         datetime_format_long            => '%a %b %e %H:%M:%S %Z %Y',
         datetime_format_today           => '%H:%M:%S',
@@ -416,6 +430,7 @@ sub set_default_config {
         show_config_edit_buttons        => 0,
         show_backends_in_table          => 0,
         show_logout_button              => 0,
+        commandline_obfuscate_pattern   => [],
         backends_with_obj_config        => {},
         use_feature_statusmap           => 0,
         use_feature_statuswrl           => 0,
@@ -498,6 +513,7 @@ sub set_default_config {
         'cookie_auth_restricted_url'        => 'http://localhost/thruk/cgi-bin/restricted.cgi',
         'cookie_auth_session_timeout'       => 86400,
         'cookie_auth_session_cache_timeout' => 5,
+        'cookie_auth_domain'                => '',
         'perf_bar_mode'                     => 'match',
         'sitepanel'                         => 'auto',
         'ssl_verify_hostnames'              => 1,
@@ -527,6 +543,7 @@ sub set_default_config {
     for my $key (keys %{$defaults}) {
         $config->{$key} = exists $config->{$key} ? $config->{$key} : $defaults->{$key};
 
+        # convert lists to scalars if the default is a scalar value
         if(ref $defaults->{$key} eq "" && ref $config->{$key} eq "ARRAY") {
             my $l = scalar (@{$config->{$key}});
             $config->{$key} = $config->{$key}->[$l-1];
@@ -540,6 +557,7 @@ sub set_default_config {
 
     # merge hashes
     for my $key (qw/cmd_quick_status cmd_defaults/) {
+        die(sprintf("%s should be a hash, got %s: %s", $key, ref $config->{$key}, Dumper($config->{$key}))) unless ref $config->{$key} eq 'HASH';
         $config->{$key} = { %{$defaults->{$key}}, %{ $config->{$key}} };
     }
     # command disabled should be a hash
@@ -590,7 +608,9 @@ sub set_default_config {
     $config->{'show_custom_vars'} = [split(/\s*,\s*/mx, join(",", @{list($config->{'show_custom_vars'})}))];
 
     # make graph_replace a list
-    $config->{'graph_replace'} = [@{list($config->{'graph_replace'})}];
+    for my $key (qw/graph_replace commandline_obfuscate_pattern/) {
+        $config->{$key} = [@{list($config->{$key})}];
+    }
 
     ## no critic
     $ENV{'PERL_LWP_SSL_VERIFY_HOSTNAME'} = $config->{'ssl_verify_hostnames'};
@@ -610,6 +630,25 @@ sub _load_any {
     );
 
     return $cfg;
+}
+
+##############################################
+
+=head2 get_thruk_version
+
+  get_thruk_version($c, [$config])
+
+return thruk version string
+
+=cut
+
+sub get_thruk_version {
+    my($c, $config) = @_;
+    $config = $c->config unless $config;
+    if($config->{'branch'}) {
+        return($config->{'version'}.'-'.$config->{'branch'});
+    }
+    return($config->{'version'});
 }
 
 ##############################################
@@ -1128,7 +1167,12 @@ sub _parse_rows {
                 } elsif(ref $conf->{$k} eq 'ARRAY') {
                     push @{$conf->{$k}}, $next;
                 } else {
-                    $conf->{$k} = [$conf->{$k}, $next];
+                    # merge top level hashes
+                    if(!$until && ref($conf->{$k}) eq 'HASH' && ref($next) eq 'HASH') {
+                        $conf->{$k} = { %{$conf->{$k}}, %{$next} };
+                    } else {
+                        $conf->{$k} = [$conf->{$k}, $next];
+                    }
                 }
                 next;
             }

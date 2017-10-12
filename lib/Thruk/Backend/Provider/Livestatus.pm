@@ -194,6 +194,46 @@ sub get_processinfo {
 
 ##########################################################
 
+=head2 get_sites
+
+return the sites list from lmd
+
+=cut
+sub get_sites {
+    my($self, %options) = @_;
+    my $key = $self->peer_key();
+    my $data;
+    if(defined $options{'data'}) {
+        $data = { $key => $options{'data'}->[0] };
+    } else {
+        unless(defined $options{'columns'}) {
+            $options{'columns'} = [qw/
+                        peer_key peer_name key name addr status bytes_send bytes_received queries
+                        last_error last_update last_online response_time idling last_query
+            /];
+            if(defined $options{'extra_columns'}) {
+                push @{$options{'columns'}}, @{$options{'extra_columns'}};
+            }
+        }
+
+        $options{'options'}->{AddPeer} = 1;
+        $options{'options'}->{wrapped_json} = $self->{'lmd_optimizations'};
+
+        $data = $self->_optimize(
+                $self->{'live'}
+                     ->table('sites')
+                     ->columns(@{$options{'columns'}})
+                     ->options($options{'options'}))
+                     ->hashref_pk('peer_key');
+        return $data if $ENV{'THRUK_SELECT'};
+        return $data if $self->{'lmd_optimizations'};
+    }
+
+    return($data, 'HASH');
+}
+
+##########################################################
+
 =head2 get_can_submit_commands
 
 returns if this user is allowed to submit commands
@@ -207,7 +247,7 @@ sub get_can_submit_commands {
             $self->{'live'}
                     ->table('contacts')
                     ->columns(qw/can_submit_commands
-                                 alias/)
+                                 alias email/)
                     ->filter({ name => $user })
                     ->options({AddPeer => 1}))
                     ->hashref_array();
@@ -721,7 +761,7 @@ sub get_logs {
         return $self->{'_peer'}->logcache->get_logs(%options);
     }
     # optimized naemon with wrapped_json output
-    if($self->{'lmd_optimizations'}) {
+    if($self->{'lmd_optimizations'} || $self->{'naemon_optimizations'}) {
         $self->_optimized_for_wrapped_json(\%options, "logs");
         #&timing_breakpoint('optimized get_hosts') if $self->{'optimized'};
     }
@@ -967,12 +1007,15 @@ sub get_host_totals_stats {
         return(\%{$rows->[0]}, 'SUM');
     }
 
+    # unhandled are required for playing sounds on details page
     my $stats = [
         'total'                             => { -isa => { -and => [ 'name' => { '!=' => '' } ]}},
         'pending'                           => { -isa => { -and => [ 'has_been_checked' => 0 ]}},
         'up'                                => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 0 ]}},
         'down'                              => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 1 ]}},
+        'down_and_unhandled'                => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 1, 'active_checks_enabled' => 1, 'acknowledged' => 0, 'scheduled_downtime_depth' => 0 ]}},
         'unreachable'                       => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 2 ]}},
+        'unreachable_and_unhandled'         => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 2, 'active_checks_enabled' => 1, 'acknowledged' => 0, 'scheduled_downtime_depth' => 0 ]}},
     ];
     $class->reset_filter()->stats($stats)->save_filter('hoststatstotals');
     return($self->get_host_totals_stats(%options));
@@ -1079,13 +1122,17 @@ sub get_service_totals_stats {
         return(\%{$rows->[0]}, 'SUM');
     }
 
+    # unhandled are required for playing sounds on details page
     my $stats = [
         'total'                             => { -isa => { -and => [ 'description' => { '!=' => '' } ]}},
         'pending'                           => { -isa => { -and => [ 'has_been_checked' => 0 ]}},
         'ok'                                => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 0 ]}},
         'warning'                           => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 1 ]}},
+        'warning_and_unhandled'             => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 1, 'host_state' => 0, 'active_checks_enabled' => 1, 'acknowledged' => 0, 'scheduled_downtime_depth' => 0 ]}},
         'critical'                          => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 2 ]}},
+        'critical_and_unhandled'            => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 2, 'host_state' => 0, 'active_checks_enabled' => 1, 'acknowledged' => 0, 'scheduled_downtime_depth' => 0 ]}},
         'unknown'                           => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 3 ]}},
+        'unknown_and_unhandled'             => { -isa => { -and => [ 'has_been_checked' => 1, 'state' => 3, 'host_state' => 0, 'active_checks_enabled' => 1, 'acknowledged' => 0, 'scheduled_downtime_depth' => 0 ]}},
     ];
     $class->reset_filter()->stats($stats)->save_filter('servicestatstotals');
     return($self->get_service_totals_stats(%options));

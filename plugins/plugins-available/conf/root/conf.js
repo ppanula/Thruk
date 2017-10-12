@@ -193,16 +193,6 @@ function init_conf_tool_buttons() {
         return false;
     });
 
-    /* list wizard */
-    jQuery('button.members_wzd_button').button({
-        icons: {primary: 'ui-wzd-button'},
-        text: false,
-        label: 'open list wizard'
-    }).click(function() {
-        init_conf_tool_list_wizard(this.id, this.name);
-        return false;
-    });
-
     jQuery('TD.attrValue').button();
     return;
 }
@@ -536,112 +526,6 @@ function close_accordion() {
     }
 }
 
-/* handle list wizard dialog */
-var available_members = new Array();
-var selected_members  = new Array();
-var init_conf_tool_list_wizard_initialized = {};
-function init_conf_tool_list_wizard(id, type) {
-    id = id.substr(0, id.length -3);
-    var tmp       = type.split(/,/);
-    var input_id  = tmp[0];
-    type          = tmp[1];
-    var aggregate = Math.abs(tmp[2]);
-    var templates = tmp[3] ? true : false;
-
-    var $d = jQuery('#' + id + 'dialog')
-      .dialog({
-        dialogClass: 'dialogWithDropShadow',
-        autoOpen:    false,
-        width:       'auto',
-        maxWidth:    1024,
-        position:    'top',
-        close:       function(event, ui) { ajax_search.hide_results(undefined, 1); return true; }
-    });
-
-    // initialize selected members
-    selected_members   = new Array();
-    selected_members_h = new Object();
-    var options = [];
-    var list = jQuery('#'+input_id).val().split(/\s*,\s*/);
-    for(var x=0; x<list.length;x+=aggregate) {
-        if(list[x] != '') {
-            var val = list[x];
-            for(var y=1; y<aggregate;y++) {
-                val = val+','+list[x+y]
-            }
-            selected_members.push(val);
-            selected_members_h[val] = 1;
-            options.push(new Option(val, val));
-        }
-    }
-    set_select_options(id+"selected_members", options, true);
-    sortlist(id+"selected_members");
-    reset_original_options(id+"selected_members");
-
-    // initialize available members
-    available_members = new Array();
-    jQuery("select#"+id+"available_members").html('<option disabled>loading...<\/option>');
-    jQuery.ajax({
-        url: 'conf.cgi?action=json&amp;type='+type,
-        type: 'POST',
-        success: function(data) {
-            var result = data[0]['data'];
-            if(templates) {
-                result = data[1]['data'];
-            }
-            var options = [];
-            var size = result.length;
-            for(var x=0; x<size;x++) {
-                if(!selected_members_h[result[x]]) {
-                    available_members.push(result[x]);
-                    options.push(new Option(result[x], result[x]));
-                }
-            }
-            set_select_options(id+"available_members", options, true);
-            sortlist(id+"available_members");
-            reset_original_options(id+"available_members");
-        },
-        error: function() {
-            jQuery("select#"+id+"available_members").html('<option disabled>error<\/option>');
-        }
-    });
-
-    // button has to be initialized only once
-    if(init_conf_tool_list_wizard_initialized[id] != undefined) {
-        // reset filter
-        jQuery('INPUT.filter_available').val('');
-        jQuery('INPUT.filter_selected').val('');
-        data_filter_select(id+'available_members', '');
-        data_filter_select(id+'selected_members', '');
-        $d.dialog('open');
-        return;
-    }
-    init_conf_tool_list_wizard_initialized[id] = true;
-
-    jQuery('#' + id + 'accept').button({
-        icons: {primary: 'ui-ok-button'}
-    }).click(function() {
-        data_filter_select(id+'available_members', '');
-        data_filter_select(id+'selected_members', '');
-
-        var newval = '';
-        var lb = document.getElementById(id+"selected_members");
-        for(i=0; i<lb.length; i++)  {
-            newval += lb.options[i].value;
-            if(i < lb.length-1) {
-                newval += ',';
-            }
-        }
-        jQuery('#'+input_id).val(newval);
-        ajax_search.hide_results(undefined, 1);
-        $d.dialog('close');
-        return false;
-    });
-
-    $d.dialog('open');
-    return;
-}
-
 /* filter already displayed attributes */
 function new_attr_filter(str) {
     if(jQuery('#new_'+str+'_btn').css('display') == 'none') {
@@ -701,18 +585,24 @@ function conf_validate_object_form(f) {
 }
 
 /* if form id is set, append own form value to remote form and submit merged */
-function save_reload_apply(formid) {
+function save_reload_apply(btn, formid, name) {
+    if(!name) { name = "save_and_reload"; }
     if(!formid) { return true; }
     var remoteform = document.getElementById(formid);
-    if(!remoteform) { return true; }
-    var input = jQuery("<input>", { type: "hidden", name: "save_and_reload", value: "1" });
-    jQuery(remoteform).append(jQuery(input));
-    if(remoteform.onsubmit()) {
-        // does not work in firefox (only after removing an attribute)
-        //debug(remoteform.submit());
-        jQuery('button.conf_apply_button')[0].click();
+    if(!remoteform) {
+        remoteform = jQuery(btn).closest('FORM');
     }
+    conf_prompt_change_summary(remoteform, function() {
+        var input = jQuery("<input>", { type: "submit", name: name, value: "1", style: "visibility: hidden;" });
+        jQuery(remoteform).append(jQuery(input));
+        input.click();
+        return false;
+    });
     return false;
+}
+
+function save_apply(btn, formid) {
+    return(save_reload_apply(btn, formid, "save"));
 }
 
 var continue_cb;
@@ -795,4 +685,32 @@ function conf_tool_cleanup(btn, link, hide) {
     });
 
     return(false);
+}
+
+function conf_prompt_change_summary(remoteform, callback) {
+    if(!show_commit_summary_prompt) {
+        return(callback());
+    }
+    jQuery("#summary-dialog-form").dialog({
+        autoOpen: true,
+        modal: true,
+        title: 'Enter Change Summary',
+        width: 500,
+        buttons: {
+            "Ok": function() {
+                var input = jQuery("<input>", { type: "hidden", name: "summary", value: jQuery("#summary-text").val() });
+                jQuery(remoteform).append(jQuery(input));
+
+                var input = jQuery("<input>", { type: "hidden", name: "summarydesc", value: jQuery("#summary-desc").val() });
+                jQuery(remoteform).append(jQuery(input));
+
+                jQuery(this).dialog("close");
+                return(callback());
+            },
+            "Cancel": function() {
+                jQuery(this).dialog("close");
+            }
+        }
+    });
+    return(true);
 }

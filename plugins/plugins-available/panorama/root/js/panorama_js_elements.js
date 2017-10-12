@@ -302,7 +302,7 @@ TP.Msg = function() {
         return '<div class="msg '+cls+'"><a class="x-tab-close-btn" title="" href="#"><\/a><h3>' + title + '<\/h3><p>' + s + '<\/p><\/div>';
     }
     return {
-        msg : function(s) {
+        msg : function(s, close_timeout) {
             if(TP.unloading) { return; }
             if(!msgCt){
                 msgCt = Ext.DomHelper.insertFirst(document.body, {id:'msg-div'}, true);
@@ -337,7 +337,13 @@ TP.Msg = function() {
                 debug(title + ': ' + p[1]);
                 delay = 30000;
             } else {
-                delay = 3000;
+                delay = 5000;
+            }
+            if(close_timeout != undefined) {
+                if(close_timeout == 0) {
+                    return;
+                }
+                delay = close_timeout * 1000;
             }
             TP.timeouts['timeout_global_msg_ghost'] = window.setTimeout( function() { if(m && m.dom) { m.ghost("t", { remove: true}) }}, delay );
         }
@@ -633,6 +639,9 @@ Ext.define('TP.dragEl', {
             if(x == undefined) { x = This.xdata.appearance[This.keyX]; }
             if(y == undefined) { y = This.xdata.appearance[This.keyY]; }
 
+            /* breaks connectors: items are moved to 0/0 when unlocking in single window mode */
+            if(x == 0 && y == 0) { return; }
+
             /* snap to roaster when shift key is hold */
             if(TP.isShift) {
                 var pos = TP.get_snap(x, y);
@@ -709,10 +718,10 @@ Ext.define('TP.dragEl', {
         });
         panel.dd.addListener('drag', function(This, evt) {
             TP.isShift = is_shift_pressed(evt);
-            if(TP.iconSettingsWindow) { TP.iconSettingsWindow.renderUpdate(); }
+            if(TP.iconSettingsWindow && TP.iconSettingsGlobals.renderUpdate) { TP.iconSettingsGlobals.renderUpdate(); }
         });
         panel.dd.addListener('dragend', function(This, evt) {
-            if(TP.iconSettingsWindow) { TP.iconSettingsWindow.renderUpdate(); }
+            if(TP.iconSettingsWindow && TP.iconSettingsGlobals.renderUpdate) { TP.iconSettingsGlobals.renderUpdate(); }
             tab.enableMapControlsTemp();
             panel.dragHint.destroy();
             panel.dragHint = undefined;

@@ -102,7 +102,12 @@ sub report_show {
             $name    =~ s/[^\wöäüÖÄÜß\-_\.]+//gmx;
             $c->res->headers->header( 'Content-Disposition', 'attachment; filename="'.$name.'"' );
             $c->res->headers->content_type($report->{'var'}->{'ctype'}) if $report->{'var'}->{'ctype'};
-            open(my $fh, '<', $report_file);
+            my $fh;
+            if($report->{'var'}->{'ctype'} eq 'text/html') {
+                open($fh, '<', $c->config->{'var_path'}.'/reports/'.$nr.'.html');
+            } else {
+                open($fh, '<', $report_file);
+            }
             binmode $fh;
             $c->res->body($fh);
             $c->{'rendered'} = 1;
@@ -170,103 +175,110 @@ sub report_send {
         $attachment = generate_report($c, $nr, $report);
     }
     $report = _read_report_file($c, $nr); # update report data, attachment would be wrong otherwise
-    if(defined $attachment) {
-        $c->stash->{'block'} = 'mail';
-        my $mailtext;
-        eval {
-            $c->stash->{'start'} = '' unless defined $c->stash->{'start'};
-            Thruk::Views::ToolkitRenderer::render($c, 'reports/'.$report->{'template'}, undef, \$mailtext);
-        };
-        if($@) {
-            Thruk::Utils::CLI::_error($@);
-            return $c->detach('/error/index/13');
-        }
+    if(!defined $attachment) {
+        Thruk::Utils::set_message( $c, 'fail_message', 'failed to send report' );
+        return 0;
+    }
 
-        # extract mail header
-        my $mailbody    = "";
-        my $bodystarted = 0;
-        my $mailheader  = {};
-        for my $line (split/\n/mx, $mailtext) {
-            if($line !~ m/^$/mx and $line !~ m/^[A-Z]+:/mx) {
-                $bodystarted = 1;
-            }
-            if($bodystarted) {
-                $mailbody .= $line."\n";
-            } elsif($line =~ m/^([A-Z]+):\s*(.*)$/mx) {
-                $mailheader->{lc($1)} = $2;
-            }
-            if($line =~ m/^$/mx) {
-                $bodystarted = 1;
-            }
-        }
-        my $bcc  = '';
-        my $from = $report->{'from'} || $mailheader->{'from'} || $c->config->{'Thruk::Plugin::Reports2'}->{'report_from_email'};
-        if(!$to) {
-            $to      = $report->{'to'}      || $mailheader->{'to'};
-            $cc      = $report->{'cc'}      || $mailheader->{'cc'};
-            $bcc     = $report->{'bcc'}     || $mailheader->{'bcc'};
-            $subject = $report->{'subject'} || $mailheader->{'subject'} || 'Thruk Report';
-        }
-        my $msg = MIME::Lite->new();
-        $msg->build(
-                 From    => $from,
-                 To      => $to,
-                 Cc      => $cc,
-                 Bcc     => $bcc,
-                 Subject => encode("MIME-B", decode_utf8($subject)),
-                 Type    => 'multipart/mixed',
-        );
-        for my $key (keys %{$mailheader}) {
-            my $value = $mailheader->{$key};
-            $key = lc($key);
-            next if $key eq 'from';
-            next if $key eq 'to';
-            next if $key eq 'cc';
-            next if $key eq 'bcc';
-            next if $key eq 'subject';
-            $msg->add($key => $mailheader->{$key});
-        }
-        $msg->attach(Type     => 'text/plain; charset=UTF-8',
-                     Data     => $mailbody,
-        );
+    # mail should not be sent
+    if(defined $report->{'var'}->{'send_mail_threshold_reached'} && !$report->{'var'}->{'send_mail_threshold_reached'}) {
+        return 2;
+    }
 
-        # url reports as html
-        if(defined $report->{'params'}->{'pdf'} && $report->{'params'}->{'pdf'} eq 'no') {
-            $attachment = $c->config->{'var_path'}.'/reports/'.$report->{'nr'}.'.html';
-            if(!-s $attachment) {
-                $attachment = $c->config->{'var_path'}.'/reports/'.$report->{'nr'}.'.dat';
-            }
-            my $ctype = 'text/html';
-            if($report->{'var'}->{'ctype'} && $report->{'var'}->{'ctype'} ne 'html2pdf') {
-                $ctype = $report->{'var'}->{'ctype'};
-            }
-            $msg->attach(Type    => $ctype,
-                     Path        => $attachment,
-                     Filename    => encode_utf8($report->{'var'}->{'attachment'}),
-                     Disposition => 'attachment',
-            );
+    $c->stash->{'block'} = 'mail';
+    my $mailtext;
+    eval {
+        $c->stash->{'start'} = '' unless defined $c->stash->{'start'};
+        Thruk::Views::ToolkitRenderer::render($c, 'reports/'.$report->{'template'}, undef, \$mailtext);
+    };
+    if($@) {
+        Thruk::Utils::CLI::_error($@);
+        return $c->detach('/error/index/13');
+    }
+
+    # extract mail header
+    my $mailbody    = "";
+    my $bodystarted = 0;
+    my $mailheader  = {};
+    for my $line (split/\n/mx, $mailtext) {
+        if($line !~ m/^$/mx and $line !~ m/^[A-Z]+:/mx) {
+            $bodystarted = 1;
         }
-        elsif($report->{'var'}->{'attachment'} && (!$report->{'var'}->{'ctype'} || $report->{'var'}->{'ctype'} ne 'html2pdf')) {
-            $msg->attach(Type    => $report->{'var'}->{'ctype'},
-                     Path        => $attachment,
-                     Filename    => encode_utf8($report->{'var'}->{'attachment'}),
-                     Disposition => 'attachment',
-            );
-        } else {
-            $msg->attach(Type    => 'application/pdf',
-                     Path        => $attachment,
-                     Filename    => 'report.pdf',
-                     Disposition => 'attachment',
-            );
+        if($bodystarted) {
+            $mailbody .= $line."\n";
+        } elsif($line =~ m/^([A-Z]+):\s*(.*)$/mx) {
+            $mailheader->{lc($1)} = $2;
         }
-        if($ENV{'THRUK_MAIL_TEST'}) {
-            $msg->send_by_testfile($ENV{'THRUK_MAIL_TEST'});
-            return 1;
-        } else {
-            return 1 if $msg->send;
+        if($line =~ m/^$/mx) {
+            $bodystarted = 1;
         }
     }
-    Thruk::Utils::set_message( $c, 'fail_message', 'failed to send report' );
+    my $bcc  = '';
+    my $from = $report->{'from'} || $mailheader->{'from'} || $c->config->{'Thruk::Plugin::Reports2'}->{'report_from_email'};
+    if(!$to) {
+        $to      = $report->{'to'}      || $mailheader->{'to'};
+        $cc      = $report->{'cc'}      || $mailheader->{'cc'};
+        $bcc     = $report->{'bcc'}     || $mailheader->{'bcc'};
+        $subject = $report->{'subject'} || $mailheader->{'subject'} || 'Thruk Report';
+    }
+    my $msg = MIME::Lite->new();
+    $msg->build(
+             From    => $from,
+             To      => $to,
+             Cc      => $cc,
+             Bcc     => $bcc,
+             Subject => encode("MIME-B", decode_utf8($subject)),
+             Type    => 'multipart/mixed',
+    );
+    for my $key (keys %{$mailheader}) {
+        my $value = $mailheader->{$key};
+        $key = lc($key);
+        next if $key eq 'from';
+        next if $key eq 'to';
+        next if $key eq 'cc';
+        next if $key eq 'bcc';
+        next if $key eq 'subject';
+        $msg->add($key => $mailheader->{$key});
+    }
+    $msg->attach(Type     => 'text/plain; charset=UTF-8',
+                 Data     => $mailbody,
+    );
+
+    # url reports as html
+    if(defined $report->{'params'}->{'pdf'} && $report->{'params'}->{'pdf'} eq 'no') {
+        $attachment = $c->config->{'var_path'}.'/reports/'.$report->{'nr'}.'.html';
+        if(!-s $attachment) {
+            $attachment = $c->config->{'var_path'}.'/reports/'.$report->{'nr'}.'.dat';
+        }
+        my $ctype = 'text/html';
+        if($report->{'var'}->{'ctype'} && $report->{'var'}->{'ctype'} ne 'html2pdf') {
+            $ctype = $report->{'var'}->{'ctype'};
+        }
+        $msg->attach(Type    => $ctype,
+                 Path        => $attachment,
+                 Filename    => encode_utf8($report->{'var'}->{'attachment'}),
+                 Disposition => 'attachment',
+        );
+    }
+    elsif($report->{'var'}->{'attachment'} && (!$report->{'var'}->{'ctype'} || $report->{'var'}->{'ctype'} ne 'html2pdf')) {
+        $msg->attach(Type    => $report->{'var'}->{'ctype'},
+                 Path        => $attachment,
+                 Filename    => encode_utf8($report->{'var'}->{'attachment'}),
+                 Disposition => 'attachment',
+        );
+    } else {
+        $msg->attach(Type    => 'application/pdf',
+                 Path        => $attachment,
+                 Filename    => 'report.pdf',
+                 Disposition => 'attachment',
+        );
+    }
+    if($ENV{'THRUK_MAIL_TEST'}) {
+        $msg->send_by_testfile($ENV{'THRUK_MAIL_TEST'});
+        return 1;
+    } else {
+        return 1 if $msg->send;
+    }
     return 0;
 }
 
@@ -401,6 +413,7 @@ sub generate_report {
     }
 
     Thruk::Utils::External::update_status($ENV{'THRUK_JOB_DIR'}, 1, 'starting') if $ENV{'THRUK_JOB_DIR'};
+    delete $options->{'var'}->{'send_mail_threshold_reached'};
 
     # empty logfile
     my $logfile = $c->config->{'var_path'}.'/reports/'.$nr.'.log';
@@ -481,6 +494,7 @@ sub generate_report {
     }
 
     # render report
+    $c->stash->{'param'}->{'mail_max_level_count'} = 0;
     my $reportdata;
     eval {
         Thruk::Utils::External::update_status($ENV{'THRUK_JOB_DIR'}, 80, 'rendering') if $ENV{'THRUK_JOB_DIR'};
@@ -493,7 +507,9 @@ sub generate_report {
 
     # convert to pdf
     if($Thruk::Utils::PDF::ctype eq 'text/html') {
-        $Thruk::Utils::PDF::ctype = "html2pdf";
+        if(!$options->{'params'}->{'pdf'} || $options->{'params'}->{'pdf'} eq 'yes') {
+            $Thruk::Utils::PDF::ctype = "html2pdf";
+        }
         my $htmlfile = $c->config->{'var_path'}.'/reports/'.$nr.'.html';
         move($attachment, $htmlfile);
         Thruk::Utils::External::update_status($ENV{'THRUK_JOB_DIR'}, 90, 'converting') if $ENV{'THRUK_JOB_DIR'};
@@ -503,9 +519,6 @@ sub generate_report {
         Thruk::Utils::External::update_status($ENV{'THRUK_JOB_DIR'}, 90, 'converting') if $ENV{'THRUK_JOB_DIR'};
         _convert_to_pdf($c, $reportdata, $attachment, $nr, $logfile);
     }
-
-    # update report runtime data
-    set_running($c, $nr, 0, undef, time());
 
     # set error if not already set
     if(!-f $attachment && !$Thruk::Utils::Reports::error) {
@@ -528,7 +541,7 @@ sub generate_report {
         }
     }
 
-    Thruk::Utils::External::update_status($ENV{'THRUK_JOB_DIR'}, 100, 'finished') if $ENV{'THRUK_JOB_DIR'};
+    Thruk::Utils::External::update_status($ENV{'THRUK_JOB_DIR'}, 95, 'clean up') if $ENV{'THRUK_JOB_DIR'};
 
     # clean up tmp files
     for my $file (@{$c->stash->{'tmp_files_to_delete'}}) {
@@ -538,8 +551,10 @@ sub generate_report {
     if($c->stash->{'debug_info'}) {
         my $debug_file = Thruk::Action::AddDefaults::save_debug_information_to_tmp_file($c);
         if($debug_file) {
+            my $rpt_debug_file = $c->config->{'var_path'}.'/reports/'.$nr.'.dbg';
+            move($debug_file, $rpt_debug_file);
             my $options = _read_report_file($c, $nr);
-            $options->{'var'}->{'debug_file'} = $debug_file;
+            $options->{'var'}->{'debug_file'} = $rpt_debug_file;
             _report_save($c, $nr, $options);
         }
     }
@@ -549,10 +564,24 @@ sub generate_report {
 
     $c->stats->profile(end => "Utils::Reports::generate_report()");
 
-    if($options->{'var'}->{'send_mails_next_time'}) {
-        set_waiting($c, $nr, 0, 0);
+    my $send_mail_threshold_reached = 1;
+    if(defined $c->stash->{'param'}->{'mail_max_level'} && $c->stash->{'param'}->{'mail_max_level'} != -1) {
+        $send_mail_threshold_reached = 0;
+        if($c->stash->{'param'}->{'mail_max_level_count'} > 0) {
+            $send_mail_threshold_reached = 1;
+        }
+        my $options = _read_report_file($c, $nr);
+        $options->{'var'}->{'send_mail_threshold_reached'} = $send_mail_threshold_reached;
+        _report_save($c, $nr, $options);
+    }
+
+    if($options->{'var'}->{'send_mails_next_time'} && $send_mail_threshold_reached) {
         Thruk::Utils::Reports::report_send($c, $nr);
     }
+
+    # update report runtime data
+    Thruk::Utils::External::update_status($ENV{'THRUK_JOB_DIR'}, 100, 'finished') if $ENV{'THRUK_JOB_DIR'};
+    set_running($c, $nr, 0, undef, time());
 
     _check_for_waiting_reports($c);
     return $attachment;
@@ -736,8 +765,10 @@ sub update_cron_file {
             $st->{'nr'} = $r->{'nr'};
             my $cmd = _get_report_cmd($c, $r->{'nr'}, $mail);
             my $time = Thruk::Utils::get_cron_time_entry($st);
-            $cron_entries->{$time} = [] unless defined $cron_entries->{$time};
-            push @{$cron_entries->{$time}}, $cmd;
+            if($time) {
+                $cron_entries->{$time} = [] unless defined $cron_entries->{$time};
+                push @{$cron_entries->{$time}}, $cmd;
+            }
         }
     }
     my $max_concurrent_reports = $c->config->{'Thruk::Plugin::Reports2'}->{'max_concurrent_reports'} || 2;
@@ -842,6 +873,7 @@ sub clean_report_tmp_files {
     unlink $c->config->{'var_path'}.'/reports/'.$nr.'.dat'  if -e $c->config->{'var_path'}.'/reports/'.$nr.'.dat';
     unlink $c->config->{'var_path'}.'/reports/'.$nr.'.log'  if -e $c->config->{'var_path'}.'/reports/'.$nr.'.log';
     unlink $c->config->{'var_path'}.'/reports/'.$nr.'.html' if -e $c->config->{'var_path'}.'/reports/'.$nr.'.html';
+    unlink $c->config->{'var_path'}.'/reports/'.$nr.'.dbg'  if -e $c->config->{'var_path'}.'/reports/'.$nr.'.dbg';
     return;
 }
 
@@ -1150,7 +1182,6 @@ sub _read_report_file {
         $needs_save = 1;
     }
 
-
     # preset values from data
     if(defined $rdata) {
         for my $key (keys %{$rdata}) {
@@ -1287,6 +1318,11 @@ sub _convert_to_pdf {
     }
 
     my $phantomjs = $c->config->{'Thruk::Plugin::Reports2'}->{'phantomjs'} || 'phantomjs';
+    my $autoscale = 0;
+    if($c->stash->{'param'}->{'pdf'}) {
+        $autoscale = 1;
+    }
+    local $ENV{PHANTOMJSSCRIPTOPTIONS} = '--autoscale=1' if $autoscale;
     my $cmd = $c->config->{home}.'/script/html2pdf.sh "'.$htmlfile.'" "'.$attachment.'.pdf" "'.$logfile.'" "'.$phantomjs.'"';
     my $out = `$cmd 2>&1`;
 

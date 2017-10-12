@@ -57,8 +57,8 @@ sub cmd {
        or $conf->{'nofork'}
        or exists $c->req->parameters->{'noexternalforks'}
     ) {
-        local $ENV{REMOTE_USER} = $c->stash->{'remote_user'};
-        my $out = `$cmd`;
+        # $rc, $out
+        my(undef, $out) = Thruk::Utils::IO::cmd($c, $cmd);
         return _finished_job_page($c, $c->stash, undef, $out);
     }
 
@@ -102,6 +102,7 @@ sub cmd {
             forward      => "forward on success"
             backends     => "list of selected backends (keys)"
             nofork       => "don't fork"
+            background   => "return $jobid if set, or redirect otherwise"
         }
     )
 
@@ -456,8 +457,8 @@ sub job_page {
         return;
     }
 
-    # try to directly serve the request if it takes less than 10seconds
-    while($is_running and $time < 10) {
+    # try to directly serve the request if it takes less than 3 seconds
+    while($is_running and $time < 3) {
         sleep(1);
         ($is_running,$time,$percent,$message,$forward) = get_status($c, $job);
     }
@@ -552,7 +553,11 @@ sub _do_child_stuff {
     # make remote user available
     if($c) {
         confess('no remote_user') unless defined $c->stash->{'remote_user'};
-        $ENV{REMOTE_USER} = $c->stash->{'remote_user'};
+        $ENV{REMOTE_USER}        = $c->stash->{'remote_user'};
+        my $groups = [];
+        my $cache = $c->cache->get->{'users'}->{$c->stash->{'remote_user'}};
+        $groups = [sort keys %{$cache->{'contactgroups'}}] if($cache && $cache->{'contactgroups'});
+        $ENV{REMOTE_USER_GROUPS} = join(';', @{$groups}) if $c;
     }
 
     $|=1; # autoflush

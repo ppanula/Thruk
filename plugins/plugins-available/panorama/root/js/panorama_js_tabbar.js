@@ -138,6 +138,17 @@ Ext.define('TP.TabBar', {
                         icon:    url_prefix+'plugins/panorama/images/folder_picture.png',
                         handler: function() { TP.loadDashboardWindow() }
                     },
+                    '-',
+                    , {
+                        xtype:  'menucheckitem',
+                        text:   'Show Grid',
+                        id:     'show_helper_grid',
+                        handler: function(item, e) {
+                            var tabpan = Ext.getCmp('tabpan');
+                            var tab    = tabpan.getActiveTab();
+                            tab.setBackground(tab.xdata);
+                        }
+                    },
                     /* Exit */
                     '-',
                     {
@@ -185,7 +196,9 @@ Ext.define('TP.TabBar', {
         tabhead.addListener('click', function(This, eOpts) {
             var tabpan = Ext.getCmp('tabpan');
             var tab    = tabpan.getActiveTab();
-            tab.disableMapControlsTemp();
+            if(tab) {
+                tab.disableMapControlsTemp();
+            }
             var menu = Ext.create('Ext.menu.Menu', {
                 margin: '0 0 10 0',
                 items: [{
@@ -225,7 +238,9 @@ Ext.define('TP.TabBar', {
                 }],
                 listeners: {
                     beforehide: function(menu, eOpts) {
-                        tab.enableMapControlsTemp();
+                        if(tab) {
+                            tab.enableMapControlsTemp();
+                        }
                         menu.destroy();
                     }
                 }
@@ -286,15 +301,14 @@ Ext.define('TP.TabBar', {
         var activeTab = this.getActiveTab();
         if(!activeTab) {
             debug("forced setting activeTab");
-            activeTab = this.setActiveTab(0);
+            activeTab = this.setActiveTab(open_tabs.length > 0 ? open_tabs[0] : 0);
         }
-        activeTab = activeTab.getStateId();
         this.open_tabs = open_tabs;
 
         return {
             open_tabs:  open_tabs,
             xdata:      this.xdata,
-            activeTab:  activeTab
+            activeTab:  activeTab ? activeTab.getStateId() : null
         }
     },
     applyState: function(state) {
@@ -310,13 +324,6 @@ Ext.define('TP.TabBar', {
                     TP.initial_active_tab = state.activeTab;
                 }
                 this.xdata = state.xdata;
-
-                // REMOVE AFTER: 01.01.2017
-                if(state.item_ids) {
-                    for(var nr=0; nr<state.item_ids.length; nr++) {
-                        TP.add_pantab(state.item_ids[nr], undefined, undefined, undefined, undefined, true);
-                    };
-                }
 
                 if(state.open_tabs) {
                     for(var nr=0; nr<state.open_tabs.length; nr++) {
@@ -367,16 +374,6 @@ Ext.define('TP.TabBar', {
         TP.initComplete();
         this.stopTimeouts();
         TP.log('['+this.id+'] startTimeouts');
-
-        // REMOVE AFTER: 01.01.2017
-        delete this.xdata['refresh'];
-        delete this.xdata['autohideheader'];
-        delete this.xdata['backends'];
-        if(TP.reload_required) {
-            Ext.Msg.alert("Reload Required", "Internal storage format has changed. Page will reload automatically with the new format...");
-            TP.timeouts['timeout_'+this.id+'_window_reload'] = window.setTimeout(function() { TP.cp.saveChanges(false); window.location = 'panorama.cgi'; }, 3000);
-            return;
-        }
 
         var activeTab = this.getActiveTab();
         if(!activeTab) {

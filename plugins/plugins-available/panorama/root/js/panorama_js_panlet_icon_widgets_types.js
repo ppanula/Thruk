@@ -652,7 +652,7 @@ Ext.define('TP.DashboardStatusIcon', {
             panels = panels.sort(function(a,b) { return(a.iconType > b.iconType) });
             for(var nr=0; nr<panels.length; nr++) {
                 var p = panels[nr];
-                if(p.iconType && p.xdata) {
+                if(p.iconType && p.xdata && p.iconType != "text" && p.iconType != "image") {
                     if(this.xdata.state <= p.xdata.state         /* show only problems if the map has one */
                        && (this.xdata.state == 0 || p.xdata.state != 4) /* skip pending icons if there is a problem */
                        && (!this.hostProblem || (p.hostProblem || p.iconType == 'host')) /* if the map is a hostproblem, show only hosts */
@@ -699,7 +699,20 @@ Ext.define('TP.DashboardStatusIcon', {
                 This.callParent([newStatus]);
                 return;
             }
-            TP.add_pantab(tab_id, undefined, true, Ext.bind(This.refreshHandler, This, [newStatus, skipUpdate]));
+            TP.add_pantab(tab_id, undefined, true, function(id, success, response) {
+                if(success) {
+                    This.refreshHandler(newStatus, skipUpdate);
+                } else {
+                    // pass unknown state back to the parent
+                    This.downtime     = false;
+                    This.acknowledged = false;
+                    This.hostProblem  = false;
+                    This.xdata.state  = 3;
+                    newStatus         = 3;
+                    skipUpdate        = true;
+                    This.refreshHandler(newStatus, skipUpdate);
+                }
+            });
             return;
         }
         if(tab.rendered) { skipUpdate = true; }

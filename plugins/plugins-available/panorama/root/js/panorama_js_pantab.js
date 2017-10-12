@@ -88,6 +88,7 @@ Ext.define('TP.Pantab', {
             } catch(e) {
                 TP.Msg.msg("fail_message~~scroll failed: "+e);
             }
+            This.setUserStyles();
             return(true);
         },
         activate: function(This, eOpts) {
@@ -185,6 +186,10 @@ Ext.define('TP.Pantab', {
             if(This.bgImgEl)  { This.bgImgEl.hide();  }
             if(This.mapEl)    { This.mapEl.hide();    }
             if(This.map)      { This.map.controlsDiv.dom.style.display = "none"; }
+            if(This.bgDragEl) {
+                This.bgDragEl.dom.style.backgroundImage  = "";
+                This.bgDragEl.dom.style.backgroundRepeat = "";
+            }
         },
         afterrender: function(This, eOpts) {
             var tab = This;
@@ -356,33 +361,6 @@ Ext.define('TP.Pantab', {
         this.applyXdata();
         if(state) {
             TP.log('['+this.id+'] applyState: '+Ext.JSON.encode(state));
-            // REMOVE AFTER: 01.01.2017
-            // migrate old settings
-            if(state.xdata == undefined) { state.xdata = {} }
-            var oldKeys = ['window_ids', 'background', 'title'];
-            for(var x=0; x<oldKeys.length; x++) {
-                var key = oldKeys[x];
-                if(state[key]) {
-                    state.xdata[key] = state[key];
-                    delete this[key];
-                    delete state[key];
-                }
-            }
-            // migrate some global settings
-            var global = Ext.getCmp('tabpan');
-            var oldGlobals = ['refresh', 'backends', 'autohideheader'];
-            for(var x=0; x<oldGlobals.length; x++) {
-                var key = oldGlobals[x];
-                if(global.xdata[key] != undefined) {
-                    state.xdata[key] = global.xdata[key];
-                }
-            }
-
-            // REMOVE AFTER: 01.01.2017
-            if(state.xdata.window_ids) {
-                this.window_ids = state.xdata.window_ids;
-            }
-
             /* create panlets */
             Ext.apply(this.xdata, state.xdata);
             this.createInitialPanlets();
@@ -466,6 +444,7 @@ Ext.define('TP.Pantab', {
             if(This.map)   { This.map.destroy();   This.map   = undefined; }
         }
         if(This.hidden) { return; }
+        This.setUserStyles();
         if(xdata.hide_tab_header && This.tab) {
             This.tab.hide();
         }
@@ -786,6 +765,15 @@ Ext.define('TP.Pantab', {
         } else {
             tab.el.dom.style.background = '';
         }
+
+        var grid = Ext.getCmp('show_helper_grid');
+        if(grid && grid.checked) {
+            tab.bgDragEl.dom.style.backgroundImage  = "url("+url_prefix+'plugins/panorama/images/grid_helper.png'+")";
+            tab.bgDragEl.dom.style.backgroundRepeat = "repeat";
+        } else {
+            tab.bgDragEl.dom.style.backgroundImage  = "";
+            tab.bgDragEl.dom.style.backgroundRepeat = "";
+        }
     },
     applyBackgroundSizeAndOffset: function(xdata, retries, background, scale, offset_x, offset_y, size_x, size_y) {
         var tab = this;
@@ -1077,6 +1065,23 @@ Ext.define('TP.Pantab', {
                 panlet.setIconLabel();
             }
         }
+    },
+    setUserStyles: function(value) {
+        var tab = this;
+        if(value == undefined) {
+            value = tab.xdata.user_styles;
+        }
+        if(value == undefined) {
+            value = '';
+        }
+        var style = document.getElementById('user_styles');
+        if(!style) {
+            style      = document.createElement('style');
+            style.type = 'text/css';
+            style.id   = 'user_styles';
+            document.getElementsByTagName('head')[0].appendChild(style);
+        }
+        style.innerHTML = value;
     }
 });
 

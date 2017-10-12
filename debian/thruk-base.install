@@ -1,5 +1,6 @@
 /etc/init.d/thruk
 /etc/logrotate.d/thruk-base
+/etc/bash_completion.d/thruk-base
 /etc/thruk/cgi.cfg
 /etc/thruk/htpasswd
 /etc/thruk/log4perl.conf
@@ -7,6 +8,7 @@
 /etc/thruk/naglint.conf
 /etc/thruk/usercontent
 /etc/thruk/bp/bp_functions.pm
+/etc/thruk/bp/bp_filter.pm
 /usr/share/thruk/plugins/plugins-available/business_process
 /etc/thruk/plugins/plugins-available/business_process
 /etc/thruk/plugins/plugins-enabled/business_process

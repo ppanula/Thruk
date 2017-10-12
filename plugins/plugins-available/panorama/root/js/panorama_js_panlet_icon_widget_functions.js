@@ -147,7 +147,7 @@ TP.iconClickHandlerDo = function(id) {
 }
 
 /* open link or special action for given link */
-TP.iconClickHandlerExec = function(id, link, panel, target) {
+TP.iconClickHandlerExec = function(id, link, panel, target, config) {
     var special = link.match(/dashboard:\/\/(.+)$/);
     var action  = link.match(/server:\/\/(.+)$/);
     var menu    = link.match(/menu:\/\/(.+)$/);
@@ -194,6 +194,7 @@ TP.iconClickHandlerExec = function(id, link, panel, target) {
             params:  params,
             method: 'POST',
             callback: function(options, success, response) {
+                if(config == undefined) { config = {}; }
                 if(!success) {
                     if(response.status == 0) {
                         TP.Msg.msg("fail_message~~server action failed");
@@ -204,10 +205,10 @@ TP.iconClickHandlerExec = function(id, link, panel, target) {
                     var data = TP.getResponse(undefined, response);
                     if(data.rc == 0) {
                         if(data.msg != "") {
-                            TP.Msg.msg("success_message~~"+data.msg);
+                            TP.Msg.msg("success_message~~"+data.msg, config.close_timeout);
                         }
                     } else {
-                        TP.Msg.msg("fail_message~~"+data.msg);
+                        TP.Msg.msg("fail_message~~"+data.msg, config.close_timeout);
                     }
                 }
             }
@@ -215,49 +216,31 @@ TP.iconClickHandlerExec = function(id, link, panel, target) {
         return(false);
     }
     if(menu && menu[1]) {
-        var tmp = menu[1].split(/\//);
-        var menuName = tmp.shift();
-        var menuArgs = tmp;
-        var menuRaw;
-        Ext.Array.each(action_menu_items, function(val, i) {
-            var name    = val[0];
-            if(name == menuName) {
-                menuRaw = val[1];
-                return(false);
-            }
-        });
-        if(!menuRaw) {
-            TP.Msg.msg("fail_message~~no such menu: "+menu[1]);
+        var menuData = TP.parseActionMenuItemsStr(menu[1], id, panel, target);
+        if(!menuData) {
             return(false);
         }
-        var menuData  = Ext.JSON.decode(menuRaw);
-        var menuItems = [];
-        Ext.Array.each(menuData['menu'], function(i, x) {
-            if(Ext.isString(i)) {
-                menuItems.push(i);
-            } else {
-                menuItems.push({
-                    text:    i.label,
-                    icon:    replace_macros(i.icon),
-                    handler: function(This, evt) {
-                        if(i.target) {
-                            target = i.target;
-                        }
-                        return(TP.iconClickHandlerExec(id, i.action, panel, target));
-                    }
-                });
-            }
-        });
+        var autoOpen = false;
+        if(!Ext.isArray(menuData)) {
+            menuData = TP.parseActionMenuItems(menuData, id, panel, target);
+            autoOpen = true;
+        }
         TP.suppressIconTip = true;
-        Ext.create('Ext.menu.Menu', {
-            items: menuItems,
+        menu = Ext.create('Ext.menu.Menu', {
+            items: menuData,
             listeners: {
                 beforehide: function(This) {
                     TP.suppressIconTip = false;
                     This.destroy();
                 }
-            }
+            },
+            cls: autoOpen ? 'hidden' : ''
         }).showBy(panel);
+        if(autoOpen) {
+            link = menu.items.get(0);
+            link.fireEvent("click");
+            menu.hide();
+        }
         return(false);
     }
     if(link) {
@@ -298,6 +281,83 @@ TP.iconClickHandlerExec = function(id, link, panel, target) {
     }
     return(true);
 };
+
+/* parse action menu from json string data */
+TP.parseActionMenuItemsStr = function(str, id, panel, target) {
+    var tmp = str.split(/\//);
+    var menuName = tmp.shift();
+    var menuArgs = tmp;
+    var menuRaw;
+    Ext.Array.each(action_menu_items, function(val, i) {
+        var name    = val[0];
+        if(name == menuName) {
+            menuRaw = val[1];
+            return(false);
+        }
+    });
+    if(!menuRaw) {
+        TP.Msg.msg("fail_message~~no such menu: "+menu[1]);
+        return(false);
+    }
+    var menuData;
+    try {
+        menuData  = Ext.JSON.decode(menuRaw);
+    } catch(e) {
+        TP.Msg.msg("fail_message~~menu "+menu[1]+": failed to parse json - "+e);
+        return(false);
+    }
+    if(!menuData['menu']) {
+        return(menuData);
+    }
+    return(TP.parseActionMenuItems(menuData['menu'], id, panel, target));
+}
+
+TP.parseActionMenuItems = function(items, id, panel, target) {
+    var menuItems = [];
+    Ext.Array.each(items, function(i, x) {
+        if(Ext.isString(i)) {
+            /* probably a separator, like '-' */
+            menuItems.push(i);
+        } else {
+            var menuItem = {
+                text:    i.label,
+                icon:    replace_macros(i.icon)
+            };
+            var handler = function(This, evt) {
+                if(i.target) {
+                    target = i.target;
+                }
+                return(TP.iconClickHandlerExec(id, i.action, panel, target, i));
+            };
+            var listeners = {};
+            for(var key in i) {
+                if(key != "icon" && key != "action" && key != "menu" && key != "label") {
+                    if(key.match(/^on/)) {
+                        var fn = new Function(i[key]);
+                        if(key == "onclick") {
+                            listeners[key.substring(2)] = function() {
+                                if(fn()) {
+                                    handler();
+                                }
+                            }
+                        } else {
+                            listeners[key.substring(2)] = fn;
+                        }
+                    } else {
+                        menuItem[key] = i[key];
+                    }
+                }
+            }
+            if(!i.onclick) {
+                listeners["click"] = handler;
+            }
+            menuItem.listeners = listeners;
+            menuItems.push(menuItem);
+        }
+    });
+    return(menuItems);
+}
+
 
 TP.iconClickHandlerClickLink = function(panel, link, target) {
     var oldOnClick=panel.el.dom.onclick;
@@ -346,6 +406,9 @@ TP.getIconDetailsLink = function(panel, relativeUrl) {
         options.filter = cfg.filter;
         options.task   = 'redirect_status';
         base           = 'panorama.cgi';
+        if(!cfg.incl_svc) {
+            options.style = 'hostdetail';
+        }
     }
     else if(cfg.dashboard) {
         options.map    = cfg.dashboard;
@@ -486,17 +549,15 @@ TP.iconMoveHandler = function(icon, x, y, noUpdateLonLat) {
     /* update settings window */
     if(TP.iconSettingsWindow) {
         /* layout tab */
-        TP.iconSettingsWindow.items.getAt(0).items.getAt(1).down('form').getForm().setValues({x:x, y:y});
+        Ext.getCmp('layoutForm').getForm().setValues({x:x, y:y});
         /* appearance tab */
         TP.skipRender = true;
-        TP.iconSettingsWindow.items.getAt(0).items.getAt(2).down('form').getForm().setValues({
+        Ext.getCmp('appearanceForm').getForm().setValues({
             connectorfromx: icon.xdata.appearance.connectorfromx + deltaX,
             connectorfromy: icon.xdata.appearance.connectorfromy + deltaY,
             connectortox:   icon.xdata.appearance.connectortox   + deltaX,
             connectortoy:   icon.xdata.appearance.connectortoy   + deltaY
         });
-        if(icon.dragEl1) { icon.dragEl1.suspendEvents(); icon.dragEl1.setPosition(icon.xdata.appearance.connectorfromx + deltaX, icon.xdata.appearance.connectorfromy + deltaY); icon.dragEl1.resumeEvents(); }
-        if(icon.dragEl2) { icon.dragEl2.suspendEvents(); icon.dragEl2.setPosition(icon.xdata.appearance.connectortox   + deltaX, icon.xdata.appearance.connectortoy   + deltaY); icon.dragEl2.resumeEvents(); }
         TP.skipRender = false;
     }
     /* update label */
@@ -524,6 +585,10 @@ TP.iconMoveHandler = function(icon, x, y, noUpdateLonLat) {
         TP.moveAlignedIcons(deltaX, deltaY, icon.id);
     }
 
+    // update drag elements
+    if(icon.dragEl1) { icon.dragEl1.resetDragEl(); }
+    if(icon.dragEl2) { icon.dragEl2.resetDragEl(); }
+
     if(!noUpdateLonLat) {
         icon.updateMapLonLat();
     }
@@ -531,10 +596,11 @@ TP.iconMoveHandler = function(icon, x, y, noUpdateLonLat) {
 
 TP.moveAlignedIcons = function(deltaX, deltaY, skip_id) {
     if(!TP.moveIcons) { return; }
+    deltaX = Number(deltaX);
+    deltaY = Number(deltaY);
+    if(deltaX == 0 && deltaY == 0) { return; }
     Ext.Array.each(TP.moveIcons, function(item) {
         if(item.id != skip_id) {
-            deltaX = Number(deltaX);
-            deltaY = Number(deltaY);
             if(item.setIconLabel) {
                 item.suspendEvents();
                 item.xdata.layout.x = Number(item.xdata.layout.x) + deltaX;
@@ -575,8 +641,17 @@ TP.getShapeColor = function(type, panel, xdata, forceColor) {
     var p     = {};
     var perc  = 100;
     if(state == undefined) { state = panel.xdata.state; }
+
+    // host panels use warnings color for unreachable, just the label got changed in the settings menu
+    // all other panels must be mapped to service states because they can only define service colors
+    if(panel.iconType != 'host' && panel.hostProblem) {
+        if(state == 1) { state = 2 }
+    }
+
     if(xdata.appearance[type+"source"] == undefined) { xdata.appearance[type+"source"] = 'fixed'; }
     if(forceColor != undefined) { fillcolor = forceColor; }
+    else if(panel.acknowledged) { fillcolor = xdata.appearance[type+"color_ok"]; }
+    else if(panel.downtime)     { fillcolor = xdata.appearance[type+"color_ok"]; }
     else if(state == 0)         { fillcolor = xdata.appearance[type+"color_ok"]; }
     else if(state == 1)         { fillcolor = xdata.appearance[type+"color_warning"]; }
     else if(state == 2)         { fillcolor = xdata.appearance[type+"color_critical"]; }

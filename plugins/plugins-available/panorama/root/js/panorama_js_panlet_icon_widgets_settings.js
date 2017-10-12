@@ -185,8 +185,8 @@ TP.iconShowEditDialog = function(panel) {
                     fieldLabel: 'Position',
                     xtype:      'fieldcontainer',
                     layout:     'table',
-                    items: [{ xtype: 'label', text:  'x:', style: 'margin-left: 0; margin-right: 2px;' },
-                            { xtype: 'numberfield', name:  'x', width: 70, value: panel.xdata.layout.x, listeners: {
+                    items: [{ xtype: 'label', text:  'x:', style: 'margin-left: 0; margin-right: 2px;', hidden: !!tab.map },
+                            { xtype: 'numberfield', name:  'x', width: 70, value: panel.xdata.layout.x, hidden: !!tab.map, listeners: {
                                 change: function(This, newValue, oldValue, eOpts) {
                                     if(!panel.noMoreMoves) {
                                         panel.noMoreMoves = true;
@@ -196,8 +196,8 @@ TP.iconShowEditDialog = function(panel) {
                                     }
                                 }
                             }},
-                            { xtype: 'label', text:  'y:', style: 'margin-left: 10px; margin-right: 2px;' },
-                            { xtype: 'numberfield', name:  'y', width: 70, value: panel.xdata.layout.y, listeners: {
+                            { xtype: 'label', text:  'y:', style: 'margin-left: 10px; margin-right: 2px;', hidden: !!tab.map },
+                            { xtype: 'numberfield', name:  'y', width: 70, value: panel.xdata.layout.y, hidden: !!tab.map, listeners: {
                                 change: function(This, newValue, oldValue, eOpts) {
                                     if(!panel.noMoreMoves) {
                                         panel.noMoreMoves = true;
@@ -207,7 +207,31 @@ TP.iconShowEditDialog = function(panel) {
                                     }
                                 }
                             }},
-                            { xtype: 'label', text: '(use cursor keys)', style: 'margin-left: 10px;', cls: 'form-hint' }
+
+                            { xtype: 'label', text:  'lon:', style: 'margin-left: 0; margin-right: 2px;', hidden: !tab.map },
+                            { xtype: 'numberfield', name:  'lon', width: 140, decimalPrecision: 14, value: (panel.xdata.map ? panel.xdata.map.lon : 0), hidden: !tab.map, listeners: {
+                                change: function(This, newValue, oldValue, eOpts) {
+                                    if(!panel.noMoreMoves) {
+                                        panel.noMoreMoves = true;
+                                        var lat = Number(This.up('panel').getValues().lat);
+                                        panel.moveToMapLonLat(undefined, false, {map:{lon: newValue, lat: lat}, layout:{}, appearance:{}});
+                                        panel.noMoreMoves = false;
+                                    }
+                                }
+                            }},
+                            { xtype: 'label', text:  'lat:', style: 'margin-left: 10px; margin-right: 2px;', hidden: !tab.map },
+                            { xtype: 'numberfield', name:  'lat', width: 140, decimalPrecision: 14, value: (panel.xdata.map ? panel.xdata.map.lat : 0), hidden: !tab.map, listeners: {
+                                change: function(This, newValue, oldValue, eOpts) {
+                                    if(!panel.noMoreMoves) {
+                                        panel.noMoreMoves = true;
+                                        var lon = Number(This.up('panel').getValues().lon);
+                                        panel.moveToMapLonLat(undefined, false, {map:{lon: lon, lat: newValue}, layout:{}, appearance:{}});
+                                        panel.noMoreMoves = false;
+                                    }
+                                }
+                            }},
+
+                            { xtype: 'label', text: '(use cursor keys)', style: 'margin-left: 10px;', cls: 'form-hint', hidden: !!tab.map }
                     ]
                 }, {
                     fieldLabel:   'Rotation',
@@ -247,12 +271,13 @@ TP.iconShowEditDialog = function(panel) {
                     hidden:        panel.iconType == 'text' ? true : false
                 }, {
                     fieldLabel:   'Size',
-                    id:           'layoutscale',
+                    id:           'layoutsize',
                     xtype:        'fieldcontainer',
                     layout:       'hbox',
                     defaults:      {
                         listeners:   { change: function(This) { var xdata = TP.get_icon_form_xdata(settingsWindow); panel.applyScale(This.value, xdata); } }
                     },
+                    hidden:        panel.iconType == 'text' ? true : false,
                     items: [
                         { xtype: 'label', text:  'x:', style: 'margin-left: 0px; margin-right: 2px; margin-top: 2px;' },
                         {
@@ -264,8 +289,7 @@ TP.iconShowEditDialog = function(panel) {
                             step:           10,
                             width:          70,
                             value:         panel.xdata.layout.size_x,
-                            disabled:     (panel.hasScale || panel.xdata.appearance.type == 'icon') ? false : true,
-                            hidden:        panel.iconType == 'text' ? true : false
+                            disabled:     (panel.hasScale || panel.xdata.appearance.type == 'icon') ? false : true
                         },
                         { xtype: 'label', text:  'y:', style: 'margin-left: 10px; margin-right: 2px; margin-top: 2px;' },
                         {
@@ -277,9 +301,9 @@ TP.iconShowEditDialog = function(panel) {
                             step:           10,
                             width:          70,
                             value:         panel.xdata.layout.size_y,
-                            disabled:     (panel.hasScale || panel.xdata.appearance.type == 'icon') ? false : true,
-                            hidden:        panel.iconType == 'text' ? true : false
-                        }
+                            disabled:     (panel.hasScale || panel.xdata.appearance.type == 'icon') ? false : true
+                        },
+                        { xtype: 'label', text: '(either use Scale or Size)', style: 'margin-left: 10px; margin-top: 4px;', cls: 'form-hint' }
                     ]
                 }]
             }]
@@ -349,8 +373,10 @@ TP.iconShowEditDialog = function(panel) {
                 });
                 if(newValue == 'icon' || panel.hasScale) {
                     Ext.getCmp('layoutscale').setDisabled(false);
+                    Ext.getCmp('layoutsize').setDisabled(false);
                 } else {
                     Ext.getCmp('layoutscale').setDisabled(true);
+                    Ext.getCmp('layoutsize').setDisabled(true);
                 }
 
                 panel.appearance = Ext.create('tp.icon.appearance.'+newValue, { panel: panel });
@@ -724,6 +750,58 @@ TP.iconShowEditDialog = function(panel) {
                     submitEmptyText: false,
                     defaults:      { anchor: '-12', labelWidth: 50 },
                     items: [{
+                        xtype:        'fieldcontainer',
+                        fieldLabel:   'Position',
+                        layout:      { type: 'hbox', align: 'stretch' },
+                        items:        [{
+                            xtype:          'combobox',
+                            name:           'popup_position',
+                            value:          'automatic',
+                            store:         ['automatic', 'absolute position', 'relative position'],
+                            flex:            1,
+                            editable:        false,
+                            listeners:     {
+                                change: function(This, newValue, oldValue, eOpts) {
+                                    var defaults = TP.getPanelDetailsHeader(panel, true);
+                                    if(newValue == 'automatic') {
+                                        Ext.getCmp('popup_x').setDisabled(true);
+                                        Ext.getCmp('popup_y').setDisabled(true);
+                                    }
+                                    else {
+                                        Ext.getCmp('popup_x').setDisabled(false);
+                                        Ext.getCmp('popup_y').setDisabled(false);
+                                    }
+                                    TP.iconSettingsGlobals.popupPreviewUpdate();
+                                }
+                            }
+                        }, {
+                            xtype:        'label',
+                            text:         'x',
+                            margins:      {top: 3, right: 2, bottom: 0, left: 7}
+                        }, {
+                            xtype:        'numberunit',
+                            allowDecimals: false,
+                            id:           'popup_x',
+                            name:         'popup_x',
+                            width:         60,
+                            unit:         'px',
+                            disabled:      true,
+                            listeners:   { change: function() { TP.iconSettingsGlobals.popupPreviewUpdate() } }
+                        }, {
+                            xtype:        'label',
+                            text:         'y',
+                            margins:      {top: 3, right: 2, bottom: 0, left: 7}
+                        }, {
+                            xtype:        'numberunit',
+                            allowDecimals: false,
+                            name:         'popup_y',
+                            id:           'popup_y',
+                            width:         60,
+                            unit:         'px',
+                            disabled:      true,
+                            listeners:   { change: function() { TP.iconSettingsGlobals.popupPreviewUpdate() } }
+                        }]
+                    },{
                         fieldLabel:     'Popup',
                         xtype:          'combobox',
                         name:           'type',
@@ -1022,7 +1100,7 @@ TP.iconShowEditDialog = function(panel) {
             panel.locked = false;
             TP.suppressIconTip = true;
 
-             TP.iconTip.alignToSettingsWindow();
+            TP.iconTip.alignToSettingsWindow();
         }, 100);
     }
 
@@ -1076,7 +1154,7 @@ TP.get_icon_form_xdata = function(settingsWindow) {
     // clean up
     if(xdata.label.labeltext == '')   { delete xdata.label; }
     if(xdata.link.link == '')         { delete xdata.link;  }
-    if(xdata.popup && xdata.popup.type == 'default') { delete xdata.popup; }
+    if(xdata.popup && xdata.popup.type == 'default' && xdata.popup.popup_position == 'automatic') { delete xdata.popup; }
     if(xdata.layout.rotation == 0)  { delete xdata.layout.rotation; }
     Ext.getCmp('appearance_types').store.each(function(data, i) {
         var t = data.data.value;

@@ -9,7 +9,7 @@
 %endif
 
 Name:          thruk
-Version:       2.12
+Version:       2.16
 Release: 2
 License:       GPLv2+
 Packager:      Sven Nierlein <sven.nierlein@consol.de>
@@ -104,6 +104,7 @@ and event reporting.
     --with-initdir="%{_initrddir}" \
     --with-logdir="%{_localstatedir}/log/thruk" \
     --with-logrotatedir="%{_sysconfdir}/logrotate.d" \
+    --with-bashcompletedir="%{_sysconfdir}/bash_completion.d" \
     --with-thruk-user="%{apacheuser}" \
     --with-thruk-group="%{apachegroup}" \
     --with-thruk-libs="%{_libdir}/thruk/perl5" \
@@ -143,6 +144,7 @@ if [ -d /etc/thruk/ssi/. ]; then
   mkdir -p /tmp/thruk_update/ssi
   cp -rp /etc/thruk/ssi/* /tmp/thruk_update/ssi/
 fi
+
 exit 0
 
 %post base
@@ -193,8 +195,11 @@ exit 0
 %posttrans base
 # restore themes and plugins
 if [ -d /tmp/thruk_update/themes/. ]; then
+  # do not remove the new default theme
+  test -h /tmp/thruk_update/themes/Thruk2 || mv /etc/thruk/themes/themes-enabled/Thruk2 /etc/thruk/themes/themes-enabled/.Thruk2
   rm -f /etc/thruk/themes/themes-enabled/*
   cp -rp /tmp/thruk_update/themes/* /etc/thruk/themes/themes-enabled/
+  test -h /etc/thruk/themes/themes-enabled/.Thruk2 && mv /etc/thruk/themes/themes-enabled/.Thruk2 /etc/thruk/themes/themes-enabled/Thruk2
 fi
 if [ -d /tmp/thruk_update/plugins/. ]; then
   rm -f /etc/thruk/plugins/plugins-enabled/*
@@ -247,6 +252,7 @@ case "$*" in
     ;;
   1)
     # POSTUPDATE
+    /usr/bin/thruk -a livecachestop --local >/dev/null 2>&1
     rm -rf %{_localstatedir}/cache/thruk/*
     mkdir -p /var/cache/thruk/reports
     chown -R %{apacheuser}:%{apachegroup} /var/cache/thruk
@@ -308,6 +314,7 @@ exit 0
 %config(noreplace) %{_sysconfdir}/thruk/naglint.conf
 %config(noreplace) %{_sysconfdir}/thruk/log4perl.conf
 %config(noreplace) %{_sysconfdir}/logrotate.d/thruk-base
+%config(noreplace) %{_sysconfdir}/bash_completion.d/thruk-base
 %config(noreplace) %{_sysconfdir}/%{apachedir}/conf.d/thruk.conf
 %config(noreplace) %{_sysconfdir}/%{apachedir}/conf.d/thruk_cookie_auth_vhost.conf
 %{_datadir}/%{name}/plugins/plugins-available/business_process
@@ -341,6 +348,7 @@ exit 0
 %config(noreplace) %{_sysconfdir}/thruk/menu_local.conf
 %config(noreplace) %{_sysconfdir}/thruk/usercontent/
 %config(noreplace) %{_sysconfdir}/thruk/bp/bp_functions.pm
+%config(noreplace) %{_sysconfdir}/thruk/bp/bp_filter.pm
 %attr(0755,root,root) %{_datadir}/thruk/thruk_auth
 %attr(0755,root,root) %{_datadir}/thruk/script/thruk_fastcgi.pl
 %attr(0755,root,root) %{_datadir}/thruk/script/thruk.psgi

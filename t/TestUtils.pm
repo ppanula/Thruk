@@ -41,6 +41,15 @@ Thruk::Config::get_config(); # adds plugins to INC which is required for many te
 our $placktest;
 
 #########################
+sub has_util {
+    my($util) = @_;
+    for my $path (split/:/mx, $ENV{'PATH'}) {
+        return(1) if -x $path.'/'.$util;
+    }
+    return(0);
+}
+
+#########################
 sub request {
     my($url) = @_;
     if(!defined $Thruk::Backend::Pool::peers) {
@@ -537,11 +546,13 @@ sub diag_lint_errors_and_remove_some_exceptions {
         next if $err_str =~ m/Unknown\ attribute\ "data\-\w+"\ for\ tag/imxo;
         next if $err_str =~ m/Invalid\ character.*should\ be\ written\ as/imxo;
         next if $err_str =~ m/Unknown\ attribute\ "placeholder"\ for\ tag\ <input>/imxo;
+        next if $err_str =~ m/Unknown\ attribute\ "placeholder"\ for\ tag\ <textarea>/imxo;
         next if $err_str =~ m/Unknown\ attribute\ "class"\ for\ tag\ <html>/imxo;
         next if $err_str =~ m/Unknown\ attribute\ "autocomplete"\ for\ tag\ <form>/imxo;
         next if $err_str =~ m/Unknown\ attribute\ "autocomplete"\ for\ tag\ <input>/imxo;
         next if $err_str =~ m/Character\ ".*?"\ should\ be\ written\ as/imxo;
         next if $err_str =~ m/Unknown\ attribute\ "manifest"\ for\ tag\ <html>/imxo;
+        next if $err_str =~ m/Unknown\ attribute\ "sizes"\ for\ tag\ <link>/imxo;
         diag($error->as_string."\n");
         push @return, $error;
     }

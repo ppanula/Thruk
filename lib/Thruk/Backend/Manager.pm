@@ -620,6 +620,8 @@ sub expand_command {
     my $rc;
     eval {
         ($expanded,$rc) = $self->_replace_macros({string => $expanded, host => $host, service => $service, args => \@com_args});
+        $expanded = $self->_obfuscate({string => $expanded, host => $host, service => $service, args => \@com_args});
+        $command_name = $self->_obfuscate({string => $command_name, host => $host, service => $service, args => \@com_args});
     };
 
     # does it still contain macros?
@@ -795,8 +797,9 @@ sub renew_logcache {
     $noforks = 0 unless defined $noforks;
     return unless defined $c->config->{'logcache'};
     return if !$c->config->{'logcache_delta_updates'};
+    my $rc;
     eval {
-        return $self->_renew_logcache($c, $noforks);
+        $rc = $self->_renew_logcache($c, $noforks);
     };
     if($@) {
         $c->log->error($@);
@@ -805,7 +808,7 @@ sub renew_logcache {
         $c->stash->{errorDescription} =~ s/\s+at\s+.*?\.pm\s+line\s+\d+\.//gmx;
         return $c->detach('/error/index/99');
     }
-    return;
+    return $rc;
 }
 
 ########################################
@@ -885,6 +888,32 @@ sub close_logcache_connections {
     return;
 }
 
+
+########################################
+
+=head2 lmd_stats
+
+  lmd_stats($c)
+
+return lmd statistics
+
+=cut
+
+sub lmd_stats {
+    my($self, $c) = @_;
+    return unless defined $c->config->{'use_lmd_core'};
+    $self->reset_failed_backends();
+    my $stats = $self->get_sites( backend => $self->peer_key() );
+    my($status, undef) = Thruk::Utils::LMD::status($c->config);
+    my $start_time = $status->[0]->{'start_time'};
+    my $now = time();
+    for my $key (sort keys %{$stats}) {
+        my $stat = $stats->{$key};
+        $stat->{'bytes_send_rate'}     = $stat->{'bytes_send'} / ($now - $start_time);
+        $stat->{'bytes_received_rate'} = $stat->{'bytes_received'} / ($now - $start_time);
+    }
+    return($stats);
+}
 
 ########################################
 
@@ -1023,10 +1052,14 @@ sub _get_replaced_string {
             if(defined $macros->{$block} or $block =~ m/^\$ARG\d+\$/mx) {
                 my $replacement = $macros->{$block};
                 $replacement    = '' unless defined $replacement;
-                if(!$skip_args && $block =~ m/\$ARG\d+\$$/mx) {
-                    my $sub_rc;
-                    ($replacement, $sub_rc) = $self->_get_replaced_string($replacement, $macros, 1);
-                    $rc = 0 unless $sub_rc;
+                if($block =~ m/\$ARG\d+\$$/mx) {
+                    if($skip_args) {
+                        $replacement = $block;
+                    } else {
+                        my $sub_rc;
+                        ($replacement, $sub_rc) = $self->_get_replaced_string($replacement, $macros, 1);
+                        $rc = 0 unless $sub_rc;
+                    }
                 }
                 $block = $replacement;
             } else {
@@ -1035,21 +1068,61 @@ sub _get_replaced_string {
         }
         $res .= $block;
     }
-    ## no critic
+
+    $res = $self->_get_obfuscated_string($res, $macros);
+
+    return($res, $rc);
+}
+
+########################################
+sub _obfuscate {
+    my( $self, $args ) = @_;
+
+    my $string  = $args->{'string'};
+    my $macros  = $self->_get_macros($args);
+
+    return $self->_get_obfuscated_string($string, $macros);
+}
+
+########################################
+
+=head2 _get_obfuscated_string
+
+  _get_obfuscated_string
+
+replace sensitive data with ***
+
+=cut
+
+sub _get_obfuscated_string {
+    my( $self, $string, $macros ) = @_;
     if (defined $macros->{'$_SERVICEOBFUSCATE_ME$'}) {
         eval {
-            $res =~ s/$macros->{'$_SERVICEOBFUSCATE_ME$'}/\*\*\*/g;
+            ## no critic
+            $string =~ s/$macros->{'$_SERVICEOBFUSCATE_ME$'}/\*\*\*/g;
+            ## use critic
         };
     }
     if (defined $macros->{'$_HOSTOBFUSCATE_ME$'}) {
         eval {
-            $res =~ s/$macros->{'$_HOSTOBFUSCATE_ME$'}/\*\*\*/g;
+            ## no critic
+            $string =~ s/$macros->{'$_HOSTOBFUSCATE_ME$'}/\*\*\*/g;
+            ## use critic
         };
     }
-    ## use critic
 
-    return($res, $rc);
+    my $c = $Thruk::Request::c;
+    if($c->config->{'commandline_obfuscate_pattern'}) {
+        for my $pattern (@{$c->config->{'commandline_obfuscate_pattern'}}) {
+            ## no critic
+            eval('$string =~ s'.$pattern.'g');
+            ## use critic
+        }
+    }
+
+    return $string;
 }
+
 ########################################
 
 =head2 _set_host_macros
@@ -1192,7 +1265,22 @@ sub _do_on_peers {
             Thruk::Utils::LMD::check_proc($c->config, $c, 1);
             sleep(1);
             # then retry again
-            ($result, $type, $totalsize) = $self->_get_result_lmd($get_results_for, $function, $arg);
+            eval {
+                ($result, $type, $totalsize) = $self->_get_result_lmd($get_results_for, $function, $arg);
+            };
+            if($@) {
+                my $err = $@;
+                if($err =~ m|(failed\s+to\s+connect.*)\s+at\s+|mx) {
+                    $err = $1;
+                }
+                if(!$c->stash->{'lmd_ok'}) {
+                    Thruk::Utils::LMD::create_thread_dump($c, $c->config);
+                    $c->stash->{'lmd_error'} = $Thruk::Backend::Pool::lmd_peer->peer_addr().": ".$err;
+                    $c->stash->{'remote_user'} = 'thruk' unless $c->stash->{'remote_user'};
+                    Thruk::Utils::External::perl($c, { expr => 'Thruk::Utils::LMD::kill_if_not_responding($c, $c->config);', background => 1 });
+                }
+                die("internal lmd error - ".($c->stash->{'lmd_error'} || $@));
+            }
         }
     } else {
         $skip_lmd = 1;
@@ -1245,7 +1333,7 @@ sub _do_on_peers {
     $type = lc $type;
 
     # extract some extra data
-    if($function eq 'get_processinfo') {
+    if($function eq 'get_processinfo' && ref $result eq 'HASH') {
         # update configtool settings
         # and update last_program_starts
         # (set in Thruk::Utils::CLI::_cmd_raw)
@@ -1282,10 +1370,12 @@ sub _do_on_peers {
         $data = $self->_sum_answer($result);
     }
     elsif ( $function eq 'get_hostgroups' ) {
+        $result = {} if $num_selected_backends == 0;
         $data = $self->_merge_hostgroup_answer($result);
         $must_resort = 1;
     }
     elsif ( $function eq 'get_servicegroups' ) {
+        $result = {} if $num_selected_backends == 0;
         $data = $self->_merge_servicegroup_answer($result);
         $must_resort = 1;
     }
@@ -1478,6 +1568,9 @@ sub _get_result_lmd {
     my $t1 = [gettimeofday];
     $c->stats->profile( begin => "_get_result_lmd($function)");
 
+    delete $c->stash->{'lmd_ok'};
+    delete $c->stash->{'lmd_error'};
+
     if(scalar @{$peers} == 0) {
         return($result, $type, $totalsize);
     }
@@ -1492,10 +1585,13 @@ sub _get_result_lmd {
     $c->stash->{'total_backend_waited'} += $elapsed;
 
     my $meta = $peer->{'live'}->{'backend_obj'}->{'meta_data'};
+    if($meta) {
+        $c->stash->{'lmd_ok'} = 1;
+    }
     # update failed backends
     if($meta && $meta->{'failed'}) {
         for my $key (@{$peers}) {
-            $c->stash->{'failed_backends'}->{$key} = "";
+            delete $c->stash->{'failed_backends'}->{$key};
             my $peer = $self->get_peer_by_key($key);
             $peer->{'enabled'}    = 1 unless $peer->{'enabled'} == 2; # not for hidden ones
             $peer->{'runnning'}   = 1;
@@ -1507,6 +1603,9 @@ sub _get_result_lmd {
             my $peer = $self->get_peer_by_key($key);
             $peer->{'runnning'}   = 0;
             $peer->{'last_error'} = $meta->{'failed'}->{$key};
+        }
+        if(scalar keys %{$meta->{'failed'}} == @{$peers}) {
+            die("did not get a valid response for at least any site");
         }
     }
     if($meta && $meta->{'total'}) {
@@ -1856,6 +1955,23 @@ sub _remove_duplicates {
 
 ########################################
 
+=head2 page_data
+
+  page_data($c, $data)
+
+adds paged data set to the template stash.
+Data will be available as 'data'
+The pager itself as 'pager'
+
+=cut
+
+sub page_data {
+    local $ENV{'THRUK_USE_LMD'} = undef;
+    return(_page_data(undef, @_));
+}
+
+########################################
+
 =head2 _page_data
 
   _page_data($c, $data, [$result_size], [$total_size])
@@ -2123,14 +2239,15 @@ sub _merge_hostgroup_answer {
             }
 
             if( !defined $groups->{ $row->{'name'} }->{'backends_hash'} ) { $groups->{ $row->{'name'} }->{'backends_hash'} = {} }
-            $groups->{ $row->{'name'} }->{'backends_hash'}->{$name} = 1;
+            $groups->{ $row->{'name'} }->{'backends_hash'}->{$key} = $name;
         }
     }
 
     # set backends used
     for my $group ( values %{$groups} ) {
         $group->{'backend'} = [];
-        @{ $group->{'backend'} } = sort keys %{ $group->{'backends_hash'} };
+        @{ $group->{'backend'} }  = sort values %{ $group->{'backends_hash'} };
+        @{ $group->{'peer_key'} } = sort keys %{ $group->{'backends_hash'} } unless defined $group->{'peer_key'};
         delete $group->{'backends_hash'};
     }
     my @return = values %{$groups};
@@ -2165,14 +2282,15 @@ sub _merge_servicegroup_answer {
                 $groups->{ $row->{'name'} }->{'members'} = [ @{ $groups->{ $row->{'name'} }->{'members'} }, @{ $row->{'members'} } ] if $row->{'members'};
             }
             if( !defined $groups->{ $row->{'name'} }->{'backends_hash'} ) { $groups->{ $row->{'name'} }->{'backends_hash'} = {} }
-            $groups->{$row->{'name'}}->{'backends_hash'}->{$name} = 1;
+            $groups->{$row->{'name'}}->{'backends_hash'}->{$key} = $name;
         }
     }
 
     # set backends used
     for my $group ( values %{$groups} ) {
         $group->{'backend'} = [];
-        @{ $group->{'backend'} } = sort keys %{ $group->{'backends_hash'} };
+        @{ $group->{'backend'} } = sort values %{ $group->{'backends_hash'} };
+        @{ $group->{'peer_key'} } = sort keys %{ $group->{'backends_hash'} } unless defined $group->{'peer_key'};
         delete $group->{'backends_hash'};
     }
 
@@ -2582,8 +2700,12 @@ set defaults for some results
 sub _set_result_defaults {
     my($self, $function, $data) = @_;
 
+    if(ref $data ne 'ARRAY') {
+        return($data);
+    }
+
     # set some defaults if no backends where selected
-    if($function eq "get_performance_stats" and ref $data eq 'ARRAY') {
+    if($function eq "get_performance_stats") {
         $data = {};
         for my $type (qw{hosts services}) {
             for my $key (qw{_active_sum _active_1_sum _active_5_sum _active_15_sum _active_60_sum _active_all_sum
@@ -2598,7 +2720,7 @@ sub _set_result_defaults {
             }
         }
     }
-    elsif($function eq "get_service_stats" and ref $data eq 'ARRAY') {
+    elsif($function eq "get_service_stats" || $function eq "get_service_totals_stats") {
         $data = {};
         for my $key (qw{
                         total total_active total_passive pending pending_and_disabled pending_and_scheduled ok ok_and_disabled ok_and_scheduled
@@ -2613,7 +2735,7 @@ sub _set_result_defaults {
             $data->{$key} = 0;
         }
     }
-    elsif($function eq "get_host_stats" and ref $data eq 'ARRAY') {
+    elsif($function eq "get_host_stats" || $function eq "get_host_totals_stats") {
         $data = {};
         for my $key (qw{
                         total total_active total_passive pending pending_and_disabled pending_and_scheduled up up_and_disabled up_and_scheduled
@@ -2625,7 +2747,7 @@ sub _set_result_defaults {
             $data->{$key} = 0;
         }
     }
-    elsif($function eq "get_extra_perf_stats" and ref $data eq 'ARRAY') {
+    elsif($function eq "get_extra_perf_stats") {
         $data = {};
         for my $key (qw{
                         cached_log_messages connections connections_rate host_checks

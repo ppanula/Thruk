@@ -171,7 +171,7 @@ sub _process_comments_page {
                                                              );
 
     if( defined $view_mode and $view_mode eq 'xls' ) {
-        Thruk::Utils::Status::set_selected_columns($c);
+        Thruk::Utils::Status::set_selected_columns($c, ['host_', 'service_'], 'comment');
         $c->res->headers->header( 'Content-Disposition', 'attachment; filename="comments.xls"' );
         $c->stash->{'template'} = 'excel/comments.tt';
         return $c->render_excel();
@@ -220,7 +220,7 @@ sub _process_downtimes_page {
                                                                );
 
     if( defined $view_mode and $view_mode eq 'xls' ) {
-        Thruk::Utils::Status::set_selected_columns($c);
+        Thruk::Utils::Status::set_selected_columns($c, ['host_', 'service_'], 'downtime');
         $c->res->headers->header( 'Content-Disposition', 'attachment; filename="downtimes.xls"' );
         $c->stash->{'template'} = 'excel/downtimes.tt';
         return $c->render_excel();
@@ -267,7 +267,7 @@ sub _process_recurring_downtimes_page {
             'target'        => $target,
             'host'          => [split/\s*,\s*/mx,$host],
             'hostgroup'     => [split/\s*,\s*/mx,$hostgroup],
-            'service'       => $service,
+            'service'       => [split/\s*,\s*/mx,$service],
             'servicegroup'  => [split/\s*,\s*/mx,$servicegroup],
             'schedule'      => Thruk::Utils::get_cron_entries_from_param($c->req->parameters),
             'duration'      => $c->req->parameters->{'duration'}        || 5,
@@ -693,7 +693,15 @@ sub _process_process_info_page {
     return $c->detach('/error/index/1') unless $c->check_user_roles("authorized_for_system_information");
     my $view_mode = $c->req->parameters->{'view_mode'} || 'html';
     if($view_mode eq 'json') {
-        return $c->render(json => $c->stash->{'pi_detail'});
+        my $merged = {};
+        for my $name (qw/pi_detail backend_detail/) {
+            for my $key (keys %{$c->stash->{$name}}) {
+                for my $attr (keys %{$c->stash->{$name}->{$key}}) {
+                    $merged->{$key}->{$attr} = $c->stash->{$name}->{$key}->{$attr};
+                }
+            }
+        }
+        return $c->render(json => $merged);
     }
     return 1;
 }
@@ -735,6 +743,13 @@ sub _process_perf_info_page {
             $c->stash->{'logcache_error'} = $@;
             $c->stash->{'logcache_error'} =~ s/\ at\ .*?\ line\ \d+\.//gmx;
         }
+    }
+
+    # add logfile cache statistics
+    $c->stash->{'has_lmd'} = 0;
+    if($c->config->{'use_lmd_core'}) {
+        $c->stash->{'has_lmd'}   = 1;
+        $c->stash->{'lmd_stats'} = $c->{'db'}->lmd_stats($c);
     }
 
     return 1;

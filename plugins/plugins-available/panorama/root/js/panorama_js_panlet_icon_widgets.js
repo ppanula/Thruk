@@ -605,6 +605,12 @@ Ext.define('TP.SmallWidget', {
             }
             panel.xdata.map.lon = lonLat.lon;
             panel.xdata.map.lat = lonLat.lat;
+            if(TP.iconSettingsWindow && TP.iconSettingsWindow.panel == panel) {
+                /* layout tab */
+                panel.noMoreMoves = true;
+                TP.iconSettingsWindow.items.getAt(0).items.getAt(1).down('form').getForm().setValues({lon:lonLat.lon, lat:lonLat.lat});
+                panel.noMoreMoves = false;
+            }
         }
         panel.saveState();
     },
@@ -612,9 +618,10 @@ Ext.define('TP.SmallWidget', {
         var panel = this;
         var tab   = Ext.getCmp(panel.panel_id);
         if(xdata == undefined) { xdata = panel.xdata; }
-        if(tab.map == undefined || tab.map.map == undefined) { return; }
+        if(!tab || tab.map == undefined || tab.map.map == undefined) { return; }
         if(xdata.map == undefined)                     { return; }
         panel.noUpdateLonLat++;
+        if(xdata.layout == undefined) { xdata.layout = {}; }
         if(xdata.appearance.type == "connector" && !movedOnly) {
             var pixel  = tab.map.map.getPixelFromLonLat({lon: Number(xdata.map.lon),  lat: Number(xdata.map.lat)});
             var pixel1 = tab.map.map.getPixelFromLonLat({lon: Number(xdata.map.lon1), lat: Number(xdata.map.lat1)});
@@ -668,7 +675,8 @@ Ext.define('TP.SmallWidget', {
         panel.noUpdateLonLat++
         panel.suspendEvents();
         panel.setPosition(x, y);
-        if(panel.el && panel.el.dom) {
+        if(panel.xdata.map && panel.el && panel.el.dom) {
+            // connectors on maps in single tab mode are rendered wrong otherwise
             panel.setPagePosition(x, y);
         }
         panel.resumeEvents();

@@ -80,8 +80,8 @@ if($test->{'exit'} == 0) {
         # test commands with multiple backends
         local $ENV{'THRUK_NO_COMMANDS'} = 1;
         TestUtils::test_command({
-            cmd  => $BIN.' "cmd.cgi?cmd_mod=2&cmd_typ=96&host='.$host.'&start_time=now" -b '.$backends[0].' -b '.$backends[1],
-            errlike => ['/\['.$backends[0].','.$backends[1].'\]/', '/TESTMODE:/', '/'.$host.'/' ],
+            cmd  => $BIN.' "cmd.cgi?cmd_mod=2&cmd_typ=11" -b '.$backends[0].' -b '.$backends[1],
+            errlike => ['/\['.$backends[0].','.$backends[1].'\]/', '/TESTMODE:/', '/DISABLE_NOTIFICATIONS/' ],
             like => ['/Command request successfully submitted to the Backend for processing/'],
         });
         TestUtils::test_command({
@@ -107,7 +107,7 @@ TestUtils::test_command({
 # 2 commands
 TestUtils::test_command({
     cmd  => $BIN.' -a clearcache,dumpcache',
-    like => ['/^cache cleared\$VAR1/'],
+    like => ['/^cache cleared\n\$VAR1/'],
 });
 
 # create recurring downtime
@@ -123,7 +123,7 @@ TestUtils::test_command({
 # update crontab
 TestUtils::test_command({
     cmd  => $BIN.' "reports2.cgi?action=updatecron"',
-    like => ['/^OK - updated crontab$/'],
+    like => ['/OK - updated crontab$/'],
 });
 TestUtils::test_command({
     cmd  => '/usr/bin/crontab -l '.$cronuser.' | grep "THIS PART IS WRITTEN BY THRUK" | wc -l',
@@ -165,7 +165,7 @@ TestUtils::test_command({
 # logcache
 TestUtils::test_command({
     cmd     => $BIN.' -a logcacheupdate',
-    like    => ['/(^$|OK - imported \d+ log items from \d+ site)/'],
+    like    => ['/(^$|OK - imported \d+ log items from \d+ site|FAILED - logcache is not enabled)/'],
     errlike => ['/(^$|FAILED - logcache is not enabled)/'],
     exit    => undef,
 });
@@ -173,7 +173,7 @@ TestUtils::test_command({
 # test command
 TestUtils::test_command({
     cmd     => $BIN.' -a command "'.$host.'"',
-    like    => ['/Expaned Command:/'],
+    like    => ['/Expanded Command:/'],
 });
 
 # self check
@@ -183,10 +183,30 @@ TestUtils::test_command({
     exit => undef,
 });
 
+# self check with args
+TestUtils::test_command({
+    cmd    => $BIN.' selfcheck logfiles',
+    like   => ['/Logfiles:/'],
+    unlike => ['/Filesystem:/', '/is writable/', '/no errors/', '/Recurring Downtimes:/', '/Reports:/', '/no errors in \d+ reports/'],
+    exit   => undef,
+});
+
 # panorama cleanup
 TestUtils::test_command({
     cmd  => $BIN.' -a clean_dashboards',
     like => ['/OK - cleaned up 0 old dashboards/'],
+});
+
+# plugin list
+TestUtils::test_command({
+    cmd  => $BIN.' plugin list',
+    like => ['/Description/', '/The Statusmap plugin creates maps/'],
+});
+
+# plugin list enabled
+TestUtils::test_command({
+    cmd  => $BIN.' plugin list enabled',
+    like => ['/^E/'],
 });
 
 done_testing();

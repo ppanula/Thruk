@@ -33,7 +33,7 @@ sub new {
     my $self = {
         'fast_query_timeout'   => 10,
         'timeout'              => 100,
-        'logs_timeout'         => 100,
+        'logs_timeout'         => 300,
         'config'               => $config,
         'peerconfig'           => $peerconfig,
         'product_prefix'       => $product_prefix,
@@ -99,6 +99,19 @@ sub peer_name {
         $self->{'name'} = $new_val;
     }
     return $self->{'name'};
+}
+
+##########################################################
+
+=head2 _raw_query
+
+send a raw query to the backend
+
+=cut
+sub _raw_query {
+    my($self, $query) = @_;
+    my $res = $self->_req('_raw_query', [$query]);
+    return $res->[2];
 }
 
 ##########################################################
@@ -239,6 +252,22 @@ sub get_processinfo {
         $data->{$self->{'key'}} = delete $data->{$self->{'remotekey'}};
         $data->{$self->{'key'}}->{'peer_key'} = $self->{'key'};
     }
+    return($data, $typ, $size);
+}
+
+##########################################################
+
+=head2 get_sites
+
+  get_sites
+
+returns a list of lmd sites
+
+=cut
+sub get_sites {
+    my($self, @options) = @_;
+    my $res = $self->_req('get_sites', \@options);
+    my($typ, $size, $data) = @{$res};
     return($data, $typ, $size);
 }
 
@@ -693,7 +722,9 @@ returns first and last logfile entry
 sub _get_logs_start_end {
     my($self, @options) = @_;
     my $res = $self->_req('_get_logs_start_end', \@options);
-    return($res->[0], $res->[2]);
+    # old thruk versions return the data in index 0 accidently
+    my($start, $end) = @{$res->[2] || $res->[0]};
+    return([$start, $end]);
 }
 
 ##########################################################
@@ -888,6 +919,9 @@ sub _clean_code_refs {
 sub _format_response_error {
     my($response) = @_;
     my $message = "";
+    if($response->decoded_content && $response->decoded_content =~ m|<h1>(OMD:.*?)</h1>|sxm) {
+        return($1);
+    }
     if($response->decoded_content && $response->decoded_content =~ m|<!\-\-error:(.*?)\-\->|sxm) {
         $message = "\n".$1;
     }

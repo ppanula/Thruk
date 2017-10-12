@@ -123,7 +123,7 @@ sub begin {
         $c->stash->{additional_template_paths} = [ $c->config->{themes_path}.'/themes-enabled/'.$theme.'/templates' ];
     }
     $c->stash->{all_in_one_css} = 0;
-    if($theme eq 'Thruk') {
+    if($theme eq 'Thruk' || $theme eq 'Thruk2') {
         $c->stash->{all_in_one_css} = 1;
     }
 
@@ -445,6 +445,7 @@ sub add_defaults {
            or $c->req->path_info =~ m|$product_prefix\/cgi\-bin\/remote\.cgi|mx
            or $c->req->path_info =~ m|$product_prefix\/cgi\-bin\/login\.cgi|mx
            or $c->req->path_info =~ m|$product_prefix\/cgi\-bin\/restricted\.cgi|mx
+           or $c->req->path_info =~ m|$product_prefix\/cgi\-bin\/parts\.cgi|mx
            or $c->req->path_info eq '/'
            or $c->req->path_info eq $product_prefix
            or $c->req->path_info eq $product_prefix.'/docs'
@@ -1041,7 +1042,7 @@ sub set_processinfo {
                 'prev_last_program_restart' => time(),
                 'contactgroups'             => $contactgroups,
             };
-            $c->cache->set('users', $c->stash->{'remote_user'}, $cached_user_data) if defined $c->stash->{'remote_user'};
+            $c->cache->set('users', $c->stash->{'remote_user'}, $cached_user_data);
             $c->log->debug("creating new user cache for ".$c->stash->{'remote_user'});
         }
     }

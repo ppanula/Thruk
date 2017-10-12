@@ -267,54 +267,12 @@ sub _js {
     }
 
     $c->stash->{shapes} = {};
-    my $data = Thruk::Utils::get_user_data($c);
-    # split old format into new separated format
-    # REMOVE AFTER: 01.01.2017
-    $c->stash->{state} = '';
-    if(defined $data->{'panorama'}->{'state'} and defined $data->{'panorama'}->{'state'}->{'tabpan'}) {
-        $c->stash->{state} = encode_json($data->{'panorama'}->{'state'} || {});
-        if($data->{'panorama'}->{'state'}->{'tabpan'} && $data->{'panorama'}->{'state'}->{'tabpan'} !~ m/^o/mx) {
-            # migrate data, but make backup of user data before...
-            my $file = $c->config->{'var_path'}."/users/".$c->stash->{'remote_user'};
-            copy($file, $file.'.backup_panorama_migration');
-
-            my $state  = delete $data->{'panorama'}->{'state'};
-            my $tabpan = decode_json($state->{'tabpan'});
-            $data->{'panorama'}->{'dashboards'}->{'tabpan'} = $tabpan;
-            $data->{'panorama'}->{'dashboards'}->{'tabpan'}->{open_tabs} = [];
-            delete $data->{'panorama'}->{'dashboards'}->{'tabpan'}->{'item_ids'};
-            delete $data->{'panorama'}->{'dashboards'}->{'tabpan'}->{'xdata'}->{'backends'};
-            delete $data->{'panorama'}->{'dashboards'}->{'tabpan'}->{'xdata'}->{'autohideheader'};
-            delete $data->{'panorama'}->{'dashboards'}->{'tabpan'}->{'xdata'}->{'refresh'};
-            for my $key (keys %{$state}) {
-                if($key =~ m/^tabpan\-tab/mx) {
-                    my $tabdata = decode_json($state->{$key});
-                    my $dashboard = {
-                        'id'    => 'new',
-                        'tab'   => $tabdata,
-                    };
-                    my $window_ids = $tabdata->{'window_ids'} || $tabdata->{'xdata'}->{'window_ids'};
-                    for my $id (@{$window_ids}) {
-                        my $win = $state->{$id};
-                        next if !defined $win;
-                        next if $win eq 'null';
-                        $dashboard->{$id} = decode_json($win);
-                    }
-                    delete $tabdata->{'xdata'}->{'window_ids'};
-                    delete $tabdata->{'window_ids'};
-                    $dashboard = _save_dashboard($c, $dashboard);
-                    $data->{'panorama'}->{'dashboards'}->{'tabpan'}->{'activeTab'} = $key if $key eq $tabpan->{'activeTab'};
-                    push @{$data->{'panorama'}->{'dashboards'}->{'tabpan'}->{open_tabs}}, $dashboard->{'id'};
-                }
-            }
-            Thruk::Utils::store_user_data($c, $data);
-        }
-    }
+    $c->stash->{state}  = '';
 
     # merge open dashboards into state
+    my $data = Thruk::Utils::get_user_data($c);
     if($open_tabs || ($data->{'panorama'}->{dashboards} and $data->{'panorama'}->{dashboards}->{'tabpan'}->{'open_tabs'})) {
         my $shapes         = {};
-        $c->stash->{state} = '';
         $open_tabs         = $data->{'panorama'}->{dashboards}->{'tabpan'}->{'open_tabs'} unless $open_tabs;
         for my $nr (@{$open_tabs}) {
             my $dashboard = Thruk::Utils::Panorama::load_dashboard($c, $nr);
@@ -363,7 +321,15 @@ sub _js {
     my $action_menu_items = [];
     if($c->config->{'action_menu_items'}) {
         for my $name (sort keys %{$c->config->{'action_menu_items'}}) {
-            push @{$action_menu_items}, [$name, $c->config->{'action_menu_items'}->{$name}];
+            my $data = $c->config->{'action_menu_items'}->{$name};
+            if($data =~ m%^file://(.*)$%mx) {
+                my $sourcefile = $1;
+                $data = "[]";
+                if(-r $sourcefile) {
+                    $data = read_file($sourcefile);
+                }
+            }
+            push @{$action_menu_items}, [$name, $data];
         }
     }
     $c->stash->{action_menu_items} = $action_menu_items;
@@ -1096,8 +1062,9 @@ sub _avail_update {
                         }
                     }
                     my $cached = $cache->get(@cache_prefix, 'filter', $filtername, $key);
+                    $cache->set(@cache_prefix, 'filter', $filtername, $key, {val => -1, time => $now}) if(!$cached && !$cached_only);
                     $data->{$panel}->{$key} = _avail_calc($c, $cached_only, $now, $cached, $opts, undef, undef, 1);
-                    $cache->set(@cache_prefix, 'filter', $filtername, $key, {val => $data->{$panel}->{$key}, time => $now}) if(!$cached || $cached->{'time'} == $now);
+                    $cache->set(@cache_prefix, 'filter', $filtername, $key, {val => $data->{$panel}->{$key}, time => $now}) if !$cached_only;
                 }
             }
         }
@@ -1111,11 +1078,12 @@ sub _avail_update {
                 for my $key (keys %{$in->{$panel}}) {
                     my $opts   = $in->{$panel}->{$key}->{opts};
                     my $cached = $cache->get(@cache_prefix, 'hostgroups', $group, $key);
+                    $cache->set(@cache_prefix, 'hostgroups', $group, $key, {val => -1, time => $now}) if(!$cached && !$cached_only);
                     if($opts->{'incl_svc'} || (!$opts->{'incl_hst'} && !$opts->{'incl_svc'})) {
                         $c->req->parameters->{include_host_services} = 1;
                     }
                     $data->{$panel}->{$key} = _avail_calc($c, $cached_only, $now, $cached, $opts);
-                    $cache->set(@cache_prefix, 'hostgroups', $group, $key, {val => $data->{$panel}->{$key}, time => $now}) if(!$cached || $cached->{'time'} == $now);
+                    $cache->set(@cache_prefix, 'hostgroups', $group, $key, {val => $data->{$panel}->{$key}, time => $now}) if !$cached_only;
                 }
             }
         }
@@ -1127,8 +1095,9 @@ sub _avail_update {
             for my $panel (@{$types->{'servicegroups'}->{$group}}) {
                 for my $key (keys %{$in->{$panel}}) {
                     my $cached = $cache->get(@cache_prefix, 'servicegroups', $group, $key);
+                    $cache->set(@cache_prefix, 'servicegroups', $group, $key, {val => -1, time => $now}) if(!$cached && !$cached_only);
                     $data->{$panel}->{$key} = _avail_calc($c, $cached_only, $now, $cached, $in->{$panel}->{$key}->{opts});
-                    $cache->set(@cache_prefix, 'servicegroups', $group, $key, {val => $data->{$panel}->{$key}, time => $now}) if(!$cached || $cached->{'time'} == $now);
+                    $cache->set(@cache_prefix, 'servicegroups', $group, $key, {val => $data->{$panel}->{$key}, time => $now}) if !$cached_only;
                 }
             }
         }
@@ -1141,8 +1110,9 @@ sub _avail_update {
             for my $panel (@{$types->{'hosts'}->{$host}}) {
                 for my $key (keys %{$in->{$panel}}) {
                     my $cached = $cache->get(@cache_prefix, 'hosts', $host, $key);
+                    $cache->set(@cache_prefix, 'hosts', $host, $key, {val => -1, time => $now}) if(!$cached && !$cached_only);
                     $data->{$panel}->{$key} = _avail_calc($c, $cached_only, $now, $cached, $in->{$panel}->{$key}->{opts}, $host);
-                    $cache->set(@cache_prefix, 'hosts', $host, $key, {val => $data->{$panel}->{$key}, time => $now}) if(!$cached || $cached->{'time'} == $now);
+                    $cache->set(@cache_prefix, 'hosts', $host, $key, {val => $data->{$panel}->{$key}, time => $now}) if !$cached_only;
                 }
             }
         }
@@ -1156,8 +1126,9 @@ sub _avail_update {
                 for my $panel (@{$types->{'services'}->{$host}->{$service}}) {
                     for my $key (keys %{$in->{$panel}}) {
                         my $cached = $cache->get(@cache_prefix, 'services', $host, $service, $key);
+                        $cache->set(@cache_prefix, 'services', $host, $service, $key, {val => -1, time => $now}) if(!$cached && !$cached_only);
                         $data->{$panel}->{$key} = _avail_calc($c, $cached_only, $now, $cached, $in->{$panel}->{$key}->{opts}, $host, $service);
-                        $cache->set(@cache_prefix, 'services', $host, $service, $key, {val => $data->{$panel}->{$key}, time => $now}) if(!$cached || $cached->{'time'} == $now);
+                        $cache->set(@cache_prefix, 'services', $host, $service, $key, {val => $data->{$panel}->{$key}, time => $now}) if !$cached_only;
                     }
                 }
             }
@@ -1173,7 +1144,7 @@ sub _avail_update {
 
     my $json = { data => $data };
 
-    $c->stats->profile(end => "_avail_clean_cache");
+    $c->stats->profile(end => "_avail_update");
     return $c->render(json => $json);
 }
 
@@ -1620,7 +1591,11 @@ sub _task_hosts {
     $c->req->parameters->{'entries'} = $c->req->parameters->{'pageSize'};
     $c->req->parameters->{'page'}    = $c->req->parameters->{'currentPage'};
 
-    my $data = $c->{'db'}->get_hosts(filter => [ Thruk::Utils::Auth::get_auth_filter($c, 'hosts'), $hostfilter ], pager => 1, extra_columns => [qw/long_plugin_output/]);
+    my $data = $c->{'db'}->get_hosts(filter        => [ Thruk::Utils::Auth::get_auth_filter($c, 'hosts'), $hostfilter ],
+                                     pager         => 1,
+                                     extra_columns => [qw/long_plugin_output/],
+                                     sort          => { ASC => [ 'name' ] },
+                                    );
 
     my $json = {
         columns => [
@@ -1690,7 +1665,11 @@ sub _task_services {
     $c->req->parameters->{'entries'} = $c->req->parameters->{'pageSize'};
     $c->req->parameters->{'page'}    = $c->req->parameters->{'currentPage'};
 
-    $c->{'db'}->get_services(filter => [ Thruk::Utils::Auth::get_auth_filter($c, 'services'), $servicefilter], pager => 1, extra_columns => [qw/long_plugin_output/]);
+    $c->{'db'}->get_services(filter        => [ Thruk::Utils::Auth::get_auth_filter($c, 'services'), $servicefilter],
+                             pager         => 1,
+                             extra_columns => [qw/long_plugin_output/],
+                             sort          => { ASC => [ 'host_name',   'description' ] },
+                            );
 
     my $json = {
         columns => [
@@ -2004,7 +1983,7 @@ sub _task_pnp_graphs {
         }
     }
     $graphs = Thruk::Backend::Manager::_sort({}, $graphs, 'text');
-    $c->{'db'}->_page_data($c, $graphs);
+    Thruk::Backend::Manager::page_data($c, $graphs);
 
     my $json = {
         data        => $c->stash->{'data'},
@@ -2052,7 +2031,7 @@ sub _task_grafana_graphs {
         }
     }
     $graphs = Thruk::Backend::Manager::_sort({}, $graphs, 'text');
-    $c->{'db'}->_page_data($c, $graphs);
+    Thruk::Backend::Manager::page_data($c, $graphs);
 
     my $json = {
         data        => $c->stash->{'data'},
@@ -2089,7 +2068,7 @@ sub _task_userdata_backgroundimages {
         unshift @{$images}, { path => $c->stash->{'url_prefix'}.'plugins/panorama/images/s2.gif', image => '&lt;upload new image&gt;'};
         unshift @{$images}, { path => $c->stash->{'url_prefix'}.'plugins/panorama/images/s.gif',  image => 'none'};
     }
-    $c->{'db'}->_page_data($c, $images);
+    Thruk::Backend::Manager::page_data($c, $images);
     my $json = {
         data        => $c->stash->{'data'},
         total       => $c->stash->{'pager'}->{'total_entries'},
@@ -2123,7 +2102,7 @@ sub _task_userdata_images {
     if(!$query) {
         unshift @{$images}, { path => $c->stash->{'url_prefix'}.'plugins/panorama/images/s2.gif', image => '&lt;upload new image&gt;'};
     }
-    $c->{'db'}->_page_data($c, $images);
+    Thruk::Backend::Manager::page_data($c, $images);
     my $json = {
         data        => $c->stash->{'data'},
         total       => $c->stash->{'pager'}->{'total_entries'},
@@ -2367,7 +2346,10 @@ sub _task_dashboard_data {
     }
     my $json;
     if(!$dashboard) {
-        Thruk::Utils::set_message( $c, { style => 'fail_message', msg => 'no such dashboard', code => 404 });
+        if(!$c->req->parameters->{'hidden'}) {
+            Thruk::Utils::set_message( $c, { style => 'fail_message', msg => 'no such dashboard' });
+        }
+        $c->res->code(404);
         $json = { 'status' => 'failed' };
     } else {
         my $data = {};

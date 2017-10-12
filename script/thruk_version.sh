@@ -61,7 +61,10 @@ sed -r "s/branch\s*= '.*';/branch       = '$branch';/" \
     -i script/naglint        \
     -i script/nagexp         \
     -i script/nagimp
-dch --newversion "$debversion" --package "thruk" -D "UNRELEASED" "new upstream release"
+# replace unreleased with unstable, otherwise dch thinks there was no release yet and replaces the last entry
+sed -e 's/UNRELEASED/unstable/g' -i debian/changelog
+dch --newversion "$debversion" --package "thruk" -D "UNRELEASED" --urgency "low" "new upstream release"
+sed -e 's/unstable/UNRELEASED/g' -i debian/changelog
 if [ -n "$newversion" -a "$fileversion" != "${VERSION}-${BRANCH}" ]; then
     sed -r "s/^Version:\s*.*/Version:       $newversion/" -i support/thruk.spec
     sed -r "s/'${VERSION}'/'$newversion'/" \
@@ -75,22 +78,26 @@ if [ -n "$newversion" -a "$fileversion" != "${VERSION}-${BRANCH}" ]; then
                 -i MANIFEST                 \
                 -i root/thruk/startup.html  \
                 -i .gitignore
-    changesheader=$(printf "%-8s %s\n" "$fileversion" "$fulldate")
+    changesheader=$(printf "%-8s %s\n" "$debversion" "$fulldate")
     sed -r "s/^next.*/$changesheader/" -i Changes
     sed -r "s/${VERSION}/$newversion/" -i dist.ini
     git mv plugins/plugins-available/mobile/root/mobile-${VERSION}-${BRANCH}.css plugins/plugins-available/mobile/root/mobile-$fileversion.css
     git mv plugins/plugins-available/mobile/root/mobile-${VERSION}-${BRANCH}.js plugins/plugins-available/mobile/root/mobile-$fileversion.js
+    git mv plugins/plugins-available/business_process/root/bp-${VERSION}-${BRANCH}.css plugins/plugins-available/business_process/root/bp-$fileversion.css
+    git mv plugins/plugins-available/business_process/root/bp-${VERSION}-${BRANCH}.js plugins/plugins-available/business_process/root/bp-$fileversion.js
     git mv plugins/plugins-available/panorama/root/panorama-${VERSION}-${BRANCH}.css plugins/plugins-available/panorama/root/panorama-$fileversion.css
     git mv root/thruk/javascript/thruk-${VERSION}-${BRANCH}.js root/thruk/javascript/thruk-$fileversion.js
     if [ -e root/thruk/javascript/all_in_one-${VERSION}-${BRANCH}.js ]; then
         mv root/thruk/javascript/all_in_one-${VERSION}-${BRANCH}.js root/thruk/javascript/all_in_one-$fileversion.js
     fi
-    if [ -e themes/themes-available/Thruk/stylesheets/all_in_one-${VERSION}-${BRANCH}.css ]; then
-        mv themes/themes-available/Thruk/stylesheets/all_in_one-${VERSION}-${BRANCH}.css themes/themes-available/Thruk/stylesheets/all_in_one-$fileversion.css
-    fi
-    if [ -e themes/themes-available/Thruk/stylesheets/all_in_one_noframes-${VERSION}-${BRANCH}.css ]; then
-        mv themes/themes-available/Thruk/stylesheets/all_in_one_noframes-${VERSION}-${BRANCH}.css themes/themes-available/Thruk/stylesheets/all_in_one_noframes-$fileversion.css
-    fi
+    for theme in Thruk Thruk2; do
+        if [ -e themes/themes-available/${theme}/stylesheets/all_in_one-${VERSION}-${BRANCH}.css ]; then
+            mv themes/themes-available/${theme}/stylesheets/all_in_one-${VERSION}-${BRANCH}.css themes/themes-available/${theme}/stylesheets/all_in_one-$fileversion.css
+        fi
+        if [ -e themes/themes-available/${theme}/stylesheets/all_in_one_noframes-${VERSION}-${BRANCH}.css ]; then
+            mv themes/themes-available/${theme}/stylesheets/all_in_one_noframes-${VERSION}-${BRANCH}.css themes/themes-available/${theme}/stylesheets/all_in_one_noframes-$fileversion.css
+        fi
+    done
     if [ -e plugins/plugins-available/panorama/root/all_in_one-${VERSION}-${BRANCH}_panorama.js ]; then
         mv plugins/plugins-available/panorama/root/all_in_one-${VERSION}-${BRANCH}_panorama.js plugins/plugins-available/panorama/root/all_in_one-${fileversion}_panorama.js
     fi

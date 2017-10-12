@@ -20,7 +20,9 @@ dailydist: cleandist
 	rm -f plugins/plugins-available/panorama/root/all_in_one-$(DAILYVERSIONFILES)_panorama.js \
 		root/thruk/javascript/all_in_one-$(DAILYVERSIONFILES).js \
 		themes/themes-available/Thruk/stylesheets/all_in_one-$(DAILYVERSIONFILES).css \
-		themes/themes-available/Thruk/stylesheets/all_in_one_noframes-$(DAILYVERSIONFILES).css
+		themes/themes-available/Thruk/stylesheets/all_in_one_noframes-$(DAILYVERSIONFILES).css \
+		themes/themes-available/Thruk2/stylesheets/all_in_one-$(DAILYVERSIONFILES).css \
+		themes/themes-available/Thruk2/stylesheets/all_in_one_noframes-$(DAILYVERSIONFILES).css
 	ls -la *.gz
 
 releasedist: cleandist dist
@@ -158,6 +160,10 @@ local_install: local_patches
 	# logrotation
 	[ -z "${LOGROTATEDIR}" ] || { mkdir -p ${DESTDIR}${LOGROTATEDIR} && cp -p support/thruk.logrotate ${DESTDIR}${LOGROTATEDIR}/thruk-base && cd ${DESTDIR}${LOGROTATEDIR} && patch -p1 < $(shell pwd)/blib/replace/0006-logrotate.patch; }
 	############################################################################
+	# bash completion
+	[ -z "${BASHCOMPLDIR}" ] || { mkdir -p ${DESTDIR}${BASHCOMPLDIR} && cp -p support/thruk_bash_completion ${DESTDIR}${BASHCOMPLDIR}/thruk-base; }
+	############################################################################
+	############################################################################
 	# rc script
 	[ -z "${INITDIR}" ] || { mkdir -p ${DESTDIR}${INITDIR} && cp -p support/thruk.init ${DESTDIR}${INITDIR}/thruk; }
 	############################################################################
@@ -180,6 +186,7 @@ local_install: local_patches
 	############################################################################
 	# examples
 	cp -p examples/bp_functions.pm ${DESTDIR}${SYSCONFDIR}/bp/
+	cp -p examples/bp_filter.pm    ${DESTDIR}${SYSCONFDIR}/bp/
 
 quicktest:
 	TEST_AUTHOR=1 PERL_DL_NONLAZY=1 perl "-MExtUtils::Command::MM" "-e" "test_harness(0, 'inc', 'lib/')" \
@@ -217,6 +224,11 @@ dockerbuild:
 	rm -f t/docker/Dockerfile
 	$(MAKE) t/docker/Dockerfile
 
+dockerrebuild: dockerclean dockerbuild
+
+dockerclean:
+	-cd t/docker && docker rmi "local/thruk_panorama_test"
+
 dockertest: t/docker/Dockerfile dockertestfirefox dockertestchrome
 
 dockertestchrome:
@@ -232,3 +244,17 @@ dockertestfirefox:
 dockershell: t/docker/Dockerfile
 	mkdir -p $(DOCKERRESULTS)
 	$(DOCKERCMD) -it local/thruk_panorama_test /bin/bash
+
+scenariotest:
+	$(MAKE) test_scenarios
+
+test_scenarios:
+	cd t/scenarios && $(MAKE) test
+
+rpm: $(NAME)-$(VERSION).tar.gz
+	rpmbuild -ta $(NAME)-$(VERSION).tar.gz
+
+deb: $(NAME)-$(VERSION).tar.gz
+	tar zxvf $(NAME)-$(VERSION).tar.gz
+	debuild -rfakeroot -i -us -uc -b
+	rm -rf $(NAME)-$(VERSION)

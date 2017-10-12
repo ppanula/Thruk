@@ -50,8 +50,65 @@ sub set_default_stash {
     $c->stash->{imgsize}                = 20;
     $c->stash->{'audiofile'}            = '';
     $c->stash->{'has_service_filter'}   = 0;
+    $c->stash->{'show_column_select'}   = 0;
 
     return;
+}
+
+##############################################
+
+=head2 summary_set_group_defaults
+
+  summary_set_group_defaults([$group])
+
+set summary defaults
+
+=cut
+sub summary_set_group_defaults {
+    my($group) = @_;
+    $group = {} unless $group;
+    $group->{'hosts_pending'}                      = 0;
+    $group->{'hosts_up'}                           = 0;
+    $group->{'hosts_down'}                         = 0;
+    $group->{'hosts_down_unhandled'}               = 0;
+    $group->{'hosts_down_downtime'}                = 0;
+    $group->{'hosts_down_ack'}                     = 0;
+    $group->{'hosts_down_disabled_active'}         = 0;
+    $group->{'hosts_down_disabled_passive'}        = 0;
+    $group->{'hosts_unreachable'}                  = 0;
+    $group->{'hosts_unreachable_unhandled'}        = 0;
+    $group->{'hosts_unreachable_downtime'}         = 0;
+    $group->{'hosts_unreachable_ack'}              = 0;
+    $group->{'hosts_unreachable_disabled_active'}  = 0;
+    $group->{'hosts_unreachable_disabled_passive'} = 0;
+    $group->{'worst_host_state'}                   = 0;
+
+    $group->{'services_pending'}                   = 0;
+    $group->{'services_ok'}                        = 0;
+    $group->{'services_warning'}                   = 0;
+    $group->{'services_warning_unhandled'}         = 0;
+    $group->{'services_warning_downtime'}          = 0;
+    $group->{'services_warning_prob_host'}         = 0;
+    $group->{'services_warning_ack'}               = 0;
+    $group->{'services_warning_disabled_active'}   = 0;
+    $group->{'services_warning_disabled_passive'}  = 0;
+    $group->{'services_unknown'}                   = 0;
+    $group->{'services_unknown_unhandled'}         = 0;
+    $group->{'services_unknown_downtime'}          = 0;
+    $group->{'services_unknown_prob_host'}         = 0;
+    $group->{'services_unknown_ack'}               = 0;
+    $group->{'services_unknown_disabled_active'}   = 0;
+    $group->{'services_unknown_disabled_passive'}  = 0;
+    $group->{'services_critical'}                  = 0;
+    $group->{'services_critical_unhandled'}        = 0;
+    $group->{'services_critical_downtime'}         = 0;
+    $group->{'services_critical_prob_host'}        = 0;
+    $group->{'services_critical_ack'}              = 0;
+    $group->{'services_critical_disabled_active'}  = 0;
+    $group->{'services_critical_disabled_passive'} = 0;
+    $group->{'worst_service_state'}                = 0;
+
+    return($group);
 }
 
 ##############################################
@@ -86,6 +143,54 @@ sub summary_add_host_stats {
     if( $host->{ $prefix . 'state' } == 2 and $host->{ $prefix . 'checks_enabled' } == 0 and $host->{ $prefix . 'check_type' } == 1 ) { $group->{'hosts_unreachable_disabled_passive'}++; }
     if( $host->{ $prefix . 'state' } == 2 and $host->{ $prefix . 'checks_enabled' } == 1 and $host->{ $prefix . 'acknowledged' } == 0 and $host->{ $prefix . 'scheduled_downtime_depth' } == 0 ) { $group->{'hosts_unreachable_unhandled'}++; }
 
+    if( $host->{ $prefix . 'state' } > $group->{'worst_host_state'} ) { $group->{'worst_host_state'} = $host->{ $prefix . 'state' }; }
+
+    return 1;
+}
+
+##############################################
+
+=head2 summary_add_service_stats
+
+  summary_add_service_stats($prefix, $group, $host)
+
+count host status for this host
+
+=cut
+sub summary_add_service_stats {
+    my( $group, $service ) = @_;
+
+    $group->{'services_total'}++;
+
+    if( $service->{'has_been_checked'} == 0 ) { $group->{'services_pending'}++; }
+    elsif ( $service->{'state'} == 0 ) { $group->{'services_ok'}++; }
+    elsif ( $service->{'state'} == 1 ) { $group->{'services_warning'}++; }
+    elsif ( $service->{'state'} == 2 ) { $group->{'services_critical'}++; }
+    elsif ( $service->{'state'} == 3 ) { $group->{'services_unknown'}++; }
+
+    if( $service->{'state'} == 1 and $service->{'scheduled_downtime_depth'} > 0 ) { $group->{'services_warning_downtime'}++; }
+    if( $service->{'state'} == 1 and $service->{'acknowledged'} == 1 )            { $group->{'services_warning_ack'}++; }
+    if( $service->{'state'} == 1 and $service->{'checks_enabled'} == 0 and $service->{'check_type'} == 0 ) { $group->{'services_warning_disabled_active'}++; }
+    if( $service->{'state'} == 1 and $service->{'checks_enabled'} == 0 and $service->{'check_type'} == 1 ) { $group->{'services_warning_disabled_passive'}++; }
+    if( $service->{'state'} == 1 and $service->{'host_state'} > 0 )               { $group->{'services_warning_prob_host'}++; }
+    elsif ( $service->{'state'} == 1 and $service->{'checks_enabled'} == 1 and $service->{'host_state'} == 0 and $service->{'acknowledged'} == 0 and $service->{'scheduled_downtime_depth'} == 0 ) { $group->{'services_warning_unhandled'}++; }
+
+    if( $service->{'state'} == 2 and $service->{'scheduled_downtime_depth'} > 0 ) { $group->{'services_critical_downtime'}++; }
+    if( $service->{'state'} == 2 and $service->{'acknowledged'} == 1 )            { $group->{'services_critical_ack'}++; }
+    if( $service->{'state'} == 2 and $service->{'checks_enabled'} == 0 and $service->{'check_type'} == 0 ) { $group->{'services_critical_disabled_active'}++; }
+    if( $service->{'state'} == 2 and $service->{'checks_enabled'} == 0 and $service->{'check_type'} == 1 ) { $group->{'services_critical_disabled_passive'}++; }
+    if( $service->{'state'} == 2 and $service->{'host_state'} > 0 )               { $group->{'services_critical_prob_host'}++; }
+    elsif ( $service->{'state'} == 2 and $service->{'checks_enabled'} == 1 and $service->{'host_state'} == 0 and $service->{'acknowledged'} == 0 and $service->{'scheduled_downtime_depth'} == 0 ) { $group->{'services_critical_unhandled'}++; }
+
+    if( $service->{'state'} == 3 and $service->{'scheduled_downtime_depth'} > 0 ) { $group->{'services_unknown_downtime'}++; }
+    if( $service->{'state'} == 3 and $service->{'acknowledged'} == 1 )            { $group->{'services_unknown_ack'}++; }
+    if( $service->{'state'} == 3 and $service->{'checks_enabled'} == 0 and $service->{'check_type'} == 0 ) { $group->{'services_unknown_disabled_active'}++; }
+    if( $service->{'state'} == 3 and $service->{'checks_enabled'} == 0 and $service->{'check_type'} == 1 ) { $group->{'services_unknown_disabled_passive'}++; }
+    if( $service->{'state'} == 3 and $service->{'host_state'} > 0 )               { $group->{'services_unknown_prob_host'}++; }
+    elsif ( $service->{'state'} == 3 and $service->{'checks_enabled'} == 1 and $service->{'host_state'} == 0 and $service->{'acknowledged'} == 0 and $service->{'scheduled_downtime_depth'} == 0 ) { $group->{'services_unknown_unhandled'}++; }
+
+    if( $service->{'state'} > $group->{'worst_service_state'} ) { $group->{'worst_service_state'} = $service->{'state'}; }
+
     return 1;
 }
 
@@ -101,7 +206,7 @@ returns search parameter based on request parameters
 sub get_search_from_param {
     my( $c, $prefix, $force ) = @_;
 
-    unless ( $force || exists $c->req->parameters->{ $prefix . '_hoststatustypes' } ) {
+    unless ( $force || exists $c->req->parameters->{$prefix . '_hoststatustypes'} || exists $c->req->parameters->{$prefix . '_type'}) {
         return;
     }
 
@@ -227,7 +332,8 @@ sub do_filter {
 
         # complex filter search?
         push @{$searches}, Thruk::Utils::Status::get_search_from_param( $c, $prefix.'s0', 1 );
-        for ( my $x = 1; $x <= 99; $x++ ) {
+        for my $x (@{_get_search_ids($c->req->parameters, $prefix)}) {
+            next if $x == 0; # already added
             my $search = Thruk::Utils::Status::get_search_from_param( $c, $prefix.'s' . $x );
             push @{$searches}, $search if defined $search;
         }
@@ -236,6 +342,11 @@ sub do_filter {
 
     $prefix = 'dfl_' unless $prefix ne '';
     $c->stash->{'searches'}->{$prefix} = $searches;
+
+    $c->stash->{'show_filter_table'} = 0;
+    if($hostfilter || $servicefilter || $hostgroupfilter || $servicegroupfilter) {
+        $c->stash->{'show_filter_table'} = 1;
+    }
 
     return ( $hostfilter, $servicefilter, $hostgroupfilter, $servicegroupfilter );
 }
@@ -294,8 +405,7 @@ sub classic_filter {
         if( CORE::index( $host, '*' ) >= 0 ) {
             # convert wildcards into real regexp
             my $searchhost = $host;
-            $searchhost =~ s/\.\*/*/gmx;
-            $searchhost =~ s/\*/.*/gmx;
+            $searchhost = Thruk::Utils::convert_wildcards_to_regex($searchhost);
             $errors++ unless Thruk::Utils::is_valid_regular_expression( $c, $searchhost );
             push @hostfilter,    [ { 'name'      => { '~~' => $searchhost } } ];
             push @servicefilter, [ { 'host_name' => { '~~' => $searchhost } } ];
@@ -436,8 +546,9 @@ sub do_search {
     if(     scalar @{$searches} == 1
         and scalar @{ $searches->[0]->{'text_filter'} } == 1
         and defined $searches->[0]->{'text_filter'}->[0]->{'op'}
-        and $searches->[0]->{'text_filter'}->[0]->{'op'} eq '=' )
-    {
+        and $searches->[0]->{'text_filter'}->[0]->{'op'} eq '='
+        and ($prefix eq 'dfl_' or $prefix eq '')
+    ) {
         my $type  = $searches->[0]->{'text_filter'}->[0]->{'type'};
         my $value = $searches->[0]->{'text_filter'}->[0]->{'value'};
         if( $type eq 'host' ) {
@@ -571,16 +682,12 @@ sub extend_filter {
     push @hostfilter,    $hostfilter    if defined $hostfilter;
     push @servicefilter, $servicefilter if defined $servicefilter;
 
-    $c->stash->{'show_filter_table'} = 0 if defined $c->stash;
-
     # host statustype filter (up,down,...)
     my( $host_statustype_filtername, $host_statustype_filter, $host_statustype_filter_service );
     ( $hoststatustypes, $host_statustype_filtername, $host_statustype_filter, $host_statustype_filter_service )
         = Thruk::Utils::Status::get_host_statustype_filter($hoststatustypes);
     push @hostfilter,    $host_statustype_filter         if defined $host_statustype_filter;
     push @servicefilter, $host_statustype_filter_service if defined $host_statustype_filter_service;
-
-    $c->stash->{'show_filter_table'} = 1 if defined $host_statustype_filter and  defined $c->stash;
 
     # host props filter (downtime, acknowledged...)
     my( $host_prop_filtername, $host_prop_filter, $host_prop_filter_service );
@@ -589,23 +696,17 @@ sub extend_filter {
     push @hostfilter,    $host_prop_filter         if defined $host_prop_filter;
     push @servicefilter, $host_prop_filter_service if defined $host_prop_filter_service;
 
-    $c->stash->{'show_filter_table'} = 1 if defined $host_prop_filter and  defined $c->stash;
-
     # service statustype filter (ok,warning,...)
     my( $service_statustype_filtername, $service_statustype_filter_service );
     ( $servicestatustypes, $service_statustype_filtername, $service_statustype_filter_service )
         = Thruk::Utils::Status::get_service_statustype_filter($servicestatustypes, $c);
     push @servicefilter, $service_statustype_filter_service if defined $service_statustype_filter_service;
 
-    $c->stash->{'show_filter_table'} = 1 if defined $service_statustype_filter_service and  defined $c->stash;
-
     # service props filter (downtime, acknowledged...)
     my( $service_prop_filtername, $service_prop_filter_service );
     ( $serviceprops, $service_prop_filtername, $service_prop_filter_service )
         = Thruk::Utils::Status::get_service_prop_filter($serviceprops, $c);
     push @servicefilter, $service_prop_filter_service if defined $service_prop_filter_service;
-
-    $c->stash->{'show_filter_table'} = 1 if defined $service_prop_filter_service and  defined $c->stash;
 
     $hostfilter    = Thruk::Utils::combine_filter( '-and', \@hostfilter );
     $servicefilter = Thruk::Utils::combine_filter( '-and', \@servicefilter );
@@ -683,6 +784,7 @@ sub single_search {
         if( $filter->{'op'} eq '<=' ) { $op = '<='; $rop = '>='; $dateop = '<='; }
 
         if( $op eq '!~~' or $op eq '~~' ) {
+            $value = Thruk::Utils::convert_wildcards_to_regex($value);
             $errors++ unless Thruk::Utils::is_valid_regular_expression( $c, $value );
         }
 
@@ -704,6 +806,9 @@ sub single_search {
         }
 
         if ( $filter->{'type'} eq 'search' ) {
+            # skip empty searches
+            next if $value eq '';
+
             my($hfilter, $sfilter) = Thruk::Utils::Status::get_comments_filter($c, $op, $value);
 
             my $host_search_filter = [ { name               => { $op     => $value } },
@@ -741,8 +846,7 @@ sub single_search {
 
                 # convert wildcards into real regexp
                 my $searchhost = $value;
-                $searchhost =~ s/\.\*/*/gmx;
-                $searchhost =~ s/\*/.*/gmx;
+                $searchhost = Thruk::Utils::convert_wildcards_to_regex($searchhost);
                 push @hostfilter,          { -or => [ name      => { '~~' => $searchhost }, alias      => { '~~' => $searchhost }, address      => { '~~' => $searchhost }, display_name      => { '~~' => $searchhost } ] };
                 push @hosttotalsfilter,    { -or => [ name      => { '~~' => $searchhost }, alias      => { '~~' => $searchhost }, address      => { '~~' => $searchhost }, display_name      => { '~~' => $searchhost } ] };
                 push @servicefilter,       { -or => [ host_name => { '~~' => $searchhost }, host_alias => { '~~' => $searchhost }, host_address => { '~~' => $searchhost }, host_display_name => { '~~' => $searchhost } ] };
@@ -946,6 +1050,8 @@ sub single_search {
             my $cop = '-or';
             if($op eq '!=')  { $cop = '-and' }
             if($op eq '!~~') { $cop = '-and' }
+            if($op eq '='  && $value eq '') { $cop = '-and' }
+            if($op eq '!=' && $value eq '') { $cop = '-or' }
             push @servicefilter, { $cop => [ host_custom_variables => { $op => $pre." ".$value },
                                                   custom_variables => { $op => $pre." ".$value },
                                           ],
@@ -1495,26 +1601,50 @@ sub get_groups_filter {
 
 =head2 set_selected_columns
 
-  set_selected_columns($c)
+  set_selected_columns($c, $prefixes, [$type])
 
 set selected columns for the excel export
 
 =cut
 sub set_selected_columns {
-    my($c) = @_;
+    my($c, $prefixes, $type, $default_cols) = @_;
 
-    for my $prefix ('', 'host_', 'service_') {
-        my $columns = {};
-        my $last_col = 50;
-        for my $x (0..50) { $columns->{$x} = 1; }
-        if(defined $c->req->parameters->{$prefix.'columns'}) {
-            $last_col = 0;
-            for my $x (0..50) { $columns->{$x} = 0; }
-            my $cols = $c->req->parameters->{$prefix.'columns'};
-            for my $nr (ref $cols eq 'ARRAY' ? @{$cols} : ($cols)) {
-                $columns->{$nr} = 1;
-                $last_col++;
+    confess("must set a prefix") unless $prefixes;
+
+    my $default_compat_columns = {
+        'host'             => ['Hostname', 'IP', 'Status', 'Acknowledged', 'Downtime', 'Notifications', 'Active Checks', 'Flapping', 'Last Check', 'Duration', 'Status Information', 'Extra Status Information'],
+        'service'          => ['Hostname', 'IP', 'Host Acknowledged', 'Host Downtime', 'Host Notifications', 'Host Active Checks', 'Host Flapping', 'Service', 'Status', 'Last Check', 'Duration', 'Attempt', 'Acknowledged', 'Downtime', 'Notifications', 'Active Checks', 'Flapping', 'Status Information', 'Extra Status Information'],
+        'host_downtime'    => ['Hostname', 'Entry Time', 'Author', 'Comment', 'Start Time', 'End Time', 'Type', 'Duration', 'Downtime ID', 'Trigger ID' ],
+        'service_downtime' => ['Hostname', 'Service', 'Entry Time', 'Author', 'Comment', 'Start Time', 'End Time', 'Type', 'Duration', 'Downtime ID', 'Trigger ID' ],
+        'host_comment'     => ['Hostname', 'Entry Time', 'Author', 'Comment', 'Comment ID', 'Persistent', 'Type', 'Expires' ],
+        'service_comment'  => ['Hostname', 'Service', 'Entry Time', 'Author', 'Comment', 'Comment ID', 'Persistent', 'Type', 'Expires' ],
+        'log'              => ['Time', 'Event', 'Event Detail', 'Hostname', 'Service Description', 'Info', 'Message' ],
+        'notification'     => ['Host', 'Service', 'Type', 'Time', 'Contact', 'Command', 'Information'],
+    };
+
+    for my $prefix (@{$prefixes}) {
+        my $columns = [];
+        my $last_col = 0;
+        my $type = $type;
+        if(!$type) {
+            if($prefix eq 'host_') {
+                $type = "host";
+            } elsif($prefix eq 'service_') {
+                $type = "service";
             }
+        }
+        if(!$type) {
+            confess("must set a type");
+        }
+        my $ref_col = $default_cols || $default_compat_columns->{$type} || $default_compat_columns->{$prefix.$type};
+        my $cols    = Thruk::Utils::list($c->req->parameters->{$prefix.'columns'} || $ref_col);
+        for my $col (@{$cols}) {
+            if($col =~ m/^\d+$/mx) {
+                push @{$columns}, $ref_col->[$col-1];
+            } else {
+                push @{$columns}, $col;
+            }
+            $last_col++;
         }
         $c->stash->{$prefix.'last_col'} = chr(65+$last_col-1);
         $c->stash->{$prefix.'columns'}  = $columns;
@@ -1634,9 +1764,6 @@ sub get_downtimes_filter {
         push @servicefilter,       { -or => [ downtimes => { $op => { '!=' => undef }} ]};
     }
     else {
-        # The value is on hours, convert to seconds
-        $value = $value * 3600;
-
         # Get all the downtimes
         my $downtimes    = $c->{'db'}->get_downtimes( filter => [ Thruk::Utils::Auth::get_auth_filter( $c, 'downtimes' ) ] );
         my @downtime_ids = sort keys %{ Thruk::Utils::array2hash([@{$downtimes}], 'id') };
@@ -1649,10 +1776,9 @@ sub get_downtimes_filter {
             # Filter on the downtime duration
             foreach my $downtime (@{$downtimes}) {
                 my $downtime_duration = $downtime->{end_time} - $downtime->{start_time};
-
                 if ( $op eq '=' ) {
                     if ( not $downtime_duration == $value) {
-                    $downtime = undef;
+                        $downtime = undef;
                     }
                 } elsif ( $op eq '>=' ) {
                     if ( not $downtime_duration >= $value) {
@@ -1668,13 +1794,17 @@ sub get_downtimes_filter {
                     }
                 }
             }
+            # wipe out undefined downtimes
+            @{$downtimes} = grep { defined } @{$downtimes};
             @downtime_ids = sort keys %{ Thruk::Utils::array2hash([@{$downtimes}], 'id') };
         }
 
         # Supress undef value if is present and not the only result, or replace undef by -1 if no results
-        if (scalar(@downtime_ids) == 1 and $downtime_ids[0] == undef) {
+        if (scalar(@downtime_ids) == 0) {
+            @downtime_ids = (-1);
+        } elsif (scalar(@downtime_ids) == 1 && !defined $downtime_ids[0]) {
             $downtime_ids[0] = -1;
-        } elsif ($downtime_ids[0] == undef or scalar(@downtime_ids) == 0) {
+        } elsif (!defined $downtime_ids[0]) {
             splice (@downtime_ids, 0, 1);
         }
 
@@ -1822,7 +1952,7 @@ sub set_favicon_counter {
     }
 
     # get state from hosts and services (combined pages)
-    elsif(defined $c->stash->{'hosts'} and defined $c->stash->{'services'}) {
+    elsif(defined $c->stash->{'hosts'} and defined $c->stash->{'services'} and ref($c->stash->{'hosts'}) eq 'ARRAY') {
         for my $h (@{$c->stash->{'hosts'}}) {
             if($h->{'state'} != 0) { $total_red++ }
         }
@@ -1876,7 +2006,7 @@ sub get_service_matrix {
     }
 
     my @keys = sort keys %{$uniq_hosts};
-    Thruk::Backend::Manager::_page_data(undef, $c, \@keys);
+    Thruk::Backend::Manager::page_data($c, \@keys);
     @keys = (); # empty
     my $filter = [];
     for my $host_name (@{$c->stash->{'data'}}) {
@@ -2084,11 +2214,15 @@ sub get_host_columns {
         { title => "Next Check",           "field" => "next_check",           "checked" => 0 },
         { title => "Notification Period",  "field" => "notification_period",  "checked" => 0 },
         { title => "Percent State Change", "field" => "percent_state_change", "checked" => 0 },
+        { title => "In Notificaton Period", "field" => "in_notification_period", "checked" => 0 },
+        { title => "In Check Period",      "field" => "in_check_period",       "checked" => 0 },
     );
     if($c->config->{'show_custom_vars'}) {
         for my $var (@{$c->config->{'show_custom_vars'}}) {
-            push @{$columns},
-            { title => $var,               "field" => "cust_".$var,           "checked" => 0 };
+            if($var !~ m/\*/mx) { # does not work with wildcards
+                push @{$columns},
+                { title => $var,               "field" => "cust_".$var,           "checked" => 0 };
+            }
         }
     }
 
@@ -2155,11 +2289,15 @@ sub get_service_columns {
         { title => "Next Check",           "field" => "next_check",           "checked" => 0 },
         { title => "Notification Period",  "field" => "notification_period",  "checked" => 0 },
         { title => "Percent State Change", "field" => "percent_state_change", "checked" => 0 },
+        { title => "In Notificaton Period", "field" => "in_notification_period", "checked" => 0 },
+        { title => "In Check Period",      "field" => "in_check_period",       "checked" => 0 },
     );
     if($c->config->{'show_custom_vars'}) {
         for my $var (@{$c->config->{'show_custom_vars'}}) {
-            push @{$columns},
-            { title => $var,               "field" => "cust_".$var,           "checked" => 0 };
+            if($var !~ m/\*/mx) { # does not work with wildcards
+                push @{$columns},
+                { title => $var,               "field" => "cust_".$var,           "checked" => 0 };
+            }
         }
     }
 
@@ -2259,6 +2397,19 @@ sub set_comments_and_downtimes {
     return;
 }
 
+##############################################
+sub _get_search_ids {
+    my($params, $prefix) = @_;
+    my $ids = {};
+    my $search = $prefix.'s';
+    for my $key (grep /^$prefix/mx, keys %{$params}) {
+        if($key =~ m/^$search(\d+)_/mx) {
+            $ids->{$1} = 1;
+        }
+    }
+    my @list = sort keys %{$ids};
+    return(\@list);
+}
 ##############################################
 
 =head1 AUTHOR

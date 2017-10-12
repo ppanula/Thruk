@@ -182,7 +182,12 @@ sub report_edit {
         }
         $r->{'template'} = $c->req->parameters->{'template'} || $c->config->{'Thruk::Plugin::Reports2'}->{'default_template'} || 'sla_host.tt';
         if($c->req->parameters->{'params.url'}) {
-            $r->{'params'}->{'url'} = $c->req->parameters->{'params.url'};
+            my $uri = $c->req->parameters->{'params.url'};
+            if(!$r->{'params'}->{'url'}) {
+                $uri =~ s|(https?://[^/]+)/thruk/|/thruk/|gmx;
+                $uri =~ s|(https?://[^/]+)/([^/]+)/thruk/|/thruk/|gmx;
+            }
+            $r->{'params'}->{'url'} = $uri;
         }
     } else {
         $r = Thruk::Utils::Reports::_read_report_file($c, $report_nr);
@@ -370,8 +375,10 @@ sub report_download_debug{
             $c->{'rendered'} = 1;
             return 1;
         }
+        Thruk::Utils::set_message( $c, { style => 'fail_message', msg => 'no debug data for this report', code => 404 });
+    } else {
+        Thruk::Utils::set_message( $c, { style => 'fail_message', msg => 'no such report', code => 404 });
     }
-    Thruk::Utils::set_message( $c, { style => 'fail_message', msg => 'no such report', code => 404 });
     return $c->redirect_to($c->stash->{'url_prefix'}."cgi-bin/reports2.cgi");
 }
 
@@ -395,6 +402,13 @@ sub report_email {
         my $cc      = $c->req->parameters->{'cc'}      || '';
         my $desc    = $c->req->parameters->{'desc'}    || '';
         my $subject = $c->req->parameters->{'subject'} || '';
+
+        # remove threshold flag, mail sent forced manually
+        if(defined $r->{'var'}->{'send_mail_threshold_reached'}) {
+            delete $r->{'var'}->{'send_mail_threshold_reached'};
+            Thruk::Utils::Reports::_report_save($c, $report_nr, $r);
+        }
+
         if($to) {
             local $ENV{'THRUK_MAIL_TEST'} = '/tmp/mailtest.'.$$ if $c->req->parameters->{'testmode'};
             Thruk::Utils::Reports::report_send($c, $report_nr, 1, $to, $cc, $subject, $desc);

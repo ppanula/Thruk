@@ -39,6 +39,7 @@ If you are not using OMD, you will have to do some manual steps:
    https://github.com/sni/Thruk/blob/master/support/thruk_templates.cfg[github]
    or /usr/share/thruk/thruk_templates.cfg into your naemon conf.d
    folder, ex .:/etc/naemon/conf.d/thruk_bp_templates.cfg
+ - add default contacts or contactgroups to Thruk BP Host Template (thruk-bp-template)  
  - change the 'objects_templates_file' to that location.
  - create an empty file thruk_bp_generated.cfg, ex.:
    /etc/naemon/conf.d/thruk_bp_generated.cfg
@@ -124,9 +125,10 @@ link:configuration.html#component-thruk-plugin-bp[configuration sections].
 
 
 == Custom Functions
-Besides the normal functions you can write your own aggregation functions easily.
-Custom functions are written in Perl and are located in the <config dir>/bp/ with
-the .pm filename extension.
+Besides the normal functions you can write your own aggregation functions
+easily. Custom functions are written in Perl and are located in the <config
+dir>/bp/ with the .pm filename extension. The function name must end with
+`function` to distinguish them from custom filters.
 
 Example: /etc/thruk/bp/echo.pm
 ------

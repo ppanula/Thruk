@@ -45,8 +45,8 @@ $m->{'_peer'} = $m;
 
 #####################################################################
 # import data
-$m->_drop_tables($dbh, $prefix);
-$m->_create_tables($dbh, $prefix);
+Thruk::Backend::Provider::Mysql::_drop_tables($dbh, $prefix);
+Thruk::Backend::Provider::Mysql::_create_tables($dbh, $prefix);
 my($logcount) = $m->_update_logcache($c, $mode, $peer, $dbh, $prefix, $verbose, $blocksize, $files);
 is($logcount, 10, 'imported all items from '.$files->[0]);
 
@@ -56,7 +56,7 @@ is($logcount, 10, 'imported all items from '.$files->[0]);
 is($logcount, 0, 'don\'t import duplicates '.$files->[0]);
 
 #####################################################################
-my($tempfile) = $m->get_logs(file => 1, collection => $prefix);
+my($tempfile) = $m->get_logs(file => 1, collection => $prefix, sort => { 'ASC' => 'time'});
 is(-f $tempfile, 1, $tempfile.' exists');
 TestUtils::test_command({
     cmd   => '/usr/bin/diff -u '.$tempfile.' '.$files->[0],
@@ -66,5 +66,5 @@ unlink($tempfile);
 
 #####################################################################
 # clean up
-$m->_drop_tables($dbh, $prefix);
+Thruk::Backend::Provider::Mysql::_drop_tables($dbh, $prefix);
 $dbh->disconnect();
